@@ -88,7 +88,7 @@ Design complete. Files written:
   autoresearch/lockfile.txt
 
 To run experiments:
-  python3 /path/to/autoresearch-skills/bin/orchestrator.py <rounds> .
+  python3.13 /path/to/autoresearch/bin/orchestrator.py <rounds> .
 ```
 
-Replace `/path/to/` with the actual path to the autoresearch-skills directory if you can determine it.
+Replace `/path/to/` with the actual install path. The default is `~/autoresearch`.
