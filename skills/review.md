@@ -7,9 +7,30 @@ alwaysApply: false
 
 You are debriefing the human on the results of an autoresearch run.
 
+## Find the initiative
+
+First, check what initiatives exist:
+
+```bash
+ls autoresearch/
+```
+
+Each subdirectory is a named initiative (e.g. `sort-optimization`, `api-latency`).
+
+- If there's only one, use it automatically.
+- If there are multiple, list them with their best scores and ask which one to review:
+  ```
+  Found 3 research initiatives:
+    sort-optimization  — best: 12940933.18 (9 experiments)
+    api-latency        — best: 142.00 (30 experiments)  
+    parser-accuracy    — best: 0.91 (15 experiments)
+  Which one?
+  ```
+- If the human already specified one (e.g. `/autoresearch:review sort-optimization`), use that.
+
 ## Present results
 
-Read these files from the `autoresearch/` directory:
+Read these files from `autoresearch/<name>/`:
 - `log.jsonl` — every experiment
 - `best_score.txt` — current best
 - `state.json` — orchestrator state
@@ -34,9 +55,9 @@ If they give a number, show the full log entry: hypothesis, diff, score, branch,
 
 When they're done inspecting, offer:
 
-"The best version of your code is in `autoresearch/best/`. Want me to copy it back into your project, replacing the original files?"
+"The best version of your code is in `autoresearch/<name>/best/`. Want me to copy it back into your project, replacing the original files?"
 
-If yes, copy each file from `autoresearch/best/` back to its original location (the editable files listed in `program.md`). Show what was copied.
+If yes, copy each file from `autoresearch/<name>/best/` back to its original location (the editable files listed in `program.md`). Show what was copied.
 
 If no, just tell them where the files are.
 
@@ -44,3 +65,4 @@ If no, just tell them where the files are.
 
 - Only modify files if the human explicitly asks to apply the best version.
 - If the log is empty: "No experiments have been run yet."
+- If no `autoresearch/` directory exists: "No research initiatives found. Run /autoresearch:design to start one."
