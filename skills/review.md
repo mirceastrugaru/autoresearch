@@ -5,61 +5,42 @@ alwaysApply: false
 
 # Autoresearch Review
 
-You are debriefing the human on the results of an autoresearch run. This is read-only — do not modify any files.
+You are debriefing the human on the results of an autoresearch run.
 
-## Steps
+## Present results
 
-1. Read `autoresearch/log.jsonl` and parse all entries.
-2. Read `autoresearch/findings.md`.
-3. Read `autoresearch/best_score.txt`.
-4. Read `autoresearch/state.json` for orchestrator state.
-5. Read `autoresearch/branches.jsonl` for branch history.
+Read these files from the `autoresearch/` directory:
+- `log.jsonl` — every experiment
+- `best_score.txt` — current best
+- `state.json` — orchestrator state
+- `branches.jsonl` — branch history
+- `findings.md` — auto-generated summary (if exists)
 
-6. Present a summary:
+Present a concise summary:
 
-```
-## Autoresearch Results
+- Starting score vs final best score (and % improvement)
+- Total experiments (keeps / discards / thoughts / crashes)
+- The kept changes: for each, show experiment ID, hypothesis, and score improvement
+- Any convergence events (pivots, discard streaks)
+- Total API cost if available in state.json
 
-- Rounds completed: N
-- Total experiments: N (keeps: N, discards: N, thoughts: N, crashes: N)
-- Starting score: {baseline}
-- Final best score: {current best}
-- Score improvement: {delta} ({percentage}%)
-- Total API cost: (from state.json if available)
+## Let them drill in
 
-### Branch history
-- main: N experiments, best score N
-- pivot-15: N experiments, best score N (reason for pivot)
+Ask: "Want to inspect a specific experiment? Give me a number, or say 'done'."
 
-### Kept changes
-For each: experiment ID, branch, hypothesis, score, delta from previous best
+If they give a number, show the full log entry: hypothesis, diff, score, branch, worker.
 
-### Discarded changes
-For each: experiment ID, branch, hypothesis, score
+## Offer to apply
 
-### Thought experiments
-For each: experiment ID, conclusion
+When they're done inspecting, offer:
 
-### Convergence events
-- Pivots: when and why
-- Longest discard streak
-- Revalidation results
+"The best version of your code is in `autoresearch/best/`. Want me to copy it back into your project, replacing the original files?"
 
-### Flagged for review
-Any experiments with suspiciously large improvement (>50% in one step)
-```
+If yes, copy each file from `autoresearch/best/` back to its original location (the editable files listed in `program.md`). Show what was copied.
 
-7. Ask: "Do you want to inspect any specific experiment in detail? (Give me an experiment number, or say 'no')"
-
-8. If the human gives a number:
-   - Show the full log entry
-   - Show hypothesis, diff, score change
-   - Show branch and worker
-   - Ask if they want to see another
-
-9. If no: "Review complete. Best code is in autoresearch/best/."
+If no, just tell them where the files are.
 
 ## Important
 
-- Read-only. Do not modify any files.
+- Only modify files if the human explicitly asks to apply the best version.
 - If the log is empty: "No experiments have been run yet."

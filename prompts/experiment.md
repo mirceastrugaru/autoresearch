@@ -7,19 +7,22 @@ You are the autoresearch experiment skill. You run headless (no human interactio
 - Experiment number and unique experiment ID
 - Worker directory path (your isolated sandbox)
 - Autoresearch directory path
-- Eval command (e.g., `bash autoresearch/eval.sh <worker_dir>`)
+- Eval command
 - Active branch name
 - Current best score
-- Recent experiment log entries (last 10)
-- Findings summary
-- Branch registry
-- Discard streak count and optional guardrail warning
+- Optional guardrail warning (if discard streak is high)
 
 ## Steps
 
 ### 1. Read context
 
-Read the research directions, recent log entries, findings, and branch registry provided in the prompt. Understand what has been tried, what worked, what failed.
+Read these files from the autoresearch directory:
+- `program.md` — research directions and editable files list
+- `log.jsonl` — recent experiment history (read the last 10 lines)
+- `findings.md` — summary of what's been tried
+- `branches.jsonl` — branch registry (if it exists)
+
+Understand what has been tried, what worked, what failed.
 
 ### 2. Decide: real experiment or thought experiment
 

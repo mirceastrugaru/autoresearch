@@ -35,51 +35,52 @@ After install, restart Claude Code. The `/autoresearch:design` and `/autoresearc
 
 ## Usage
 
-### 1. Design (interactive)
-
-In any Claude Code session with the plugin loaded:
+In any Claude Code session:
 
 ```
 /autoresearch:design
 ```
 
-This interviews you:
-- What do you want to optimize?
-- How do you measure it?
-- Which files can the agent edit?
-- What directions should it explore?
+That's it. The skill:
 
-It writes three files in your project:
-- `autoresearch/program.md` — the research program
-- `autoresearch/eval.sh` — the scoring command
-- `autoresearch/lockfile.txt` — files the agent must not touch
+1. Asks what your research goal is
+2. Reads your codebase to understand the structure
+3. Presents a complete research plan for you to approve
+4. Writes the config files
+5. Asks how many rounds to run
+6. Launches the orchestrator and shows progress
+7. Presents results when done, with option to apply the best code
 
-### 2. Run (from terminal)
+You can also review past results anytime:
+
+```
+/autoresearch:review
+```
+
+### What happens under the hood
+
+The orchestrator spawns N parallel AI agents per round (default 3). Each agent:
+- Reads the research directions and experiment history
+- Picks a hypothesis and makes a code change
+- Runs the eval script to measure the result
+
+After each round, the best improvement wins and becomes the new baseline. Failed experiments get reverted. The orchestrator tracks convergence — if agents get stuck, it pivots strategy automatically.
+
+State is persisted. If it crashes or you stop it, `/autoresearch:design` resumes from where it left off.
+
+### Manual orchestrator usage
+
+If you prefer to run the orchestrator yourself:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-api03-...
-python3.13 /path/to/autoresearch/bin/orchestrator.py <rounds> <project-dir>
-```
-
-For example, 10 rounds on the current directory:
-
-```bash
 python3.13 /path/to/autoresearch/bin/orchestrator.py 10 .
+python3.13 /path/to/autoresearch/bin/orchestrator.py --help
 ```
 
-Each round spawns N parallel agents (default 3). So 10 rounds = 30 experiments.
+### Review past results
 
-The orchestrator:
-- Initializes directories and runs a baseline score
-- Runs parallel experiments each round
-- Promotes the best improvement, reverts the rest
-- Detects convergence (discard streaks, plateaus) and pivots strategy
-- Periodically writes a summary to `autoresearch/findings.md`
-- Persists state — if it crashes or you stop it, re-run the same command to resume
-
-### 3. Review (interactive)
-
-Back in Claude Code:
+In Claude Code:
 
 ```
 /autoresearch:review
