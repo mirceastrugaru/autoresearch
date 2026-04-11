@@ -1,0 +1,19 @@
+{
+  "name": "autoresearch-marketplace",
+  "owner": {
+    "name": "Mircea Strugaru"
+  },
+  "metadata": {
+    "description": "Autoresearch — autonomous experimentation for Claude Code",
+    "version": "0.1.0",
+    "pluginRoot": "."
+  },
+  "plugins": [
+    {
+      "name": "autoresearch",
+      "source": ".",
+      "description": "Autonomous experimentation skill. Spawns parallel AI agents to optimize code against a measurable metric.",
+      "version": "0.1.0"
+    }
+  ]
+}
