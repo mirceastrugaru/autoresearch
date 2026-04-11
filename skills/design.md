@@ -86,21 +86,26 @@ Each initiative gets its own directory under `autoresearch/`. Create `autoresear
 {research directions — specific, actionable ideas}
 ```
 
-**For qualitative mode, add a `## Rubric` section:**
+**For qualitative mode, add a `## Rubric` section with hard and soft gates:**
 
 ```markdown
 ## Rubric
 
-Score each criterion 1-10. Final score = weighted sum (max 100).
+Hard gates (fail any = score 0):
+- Correctness: no factual errors
+- Evidence: non-trivial claims must have backing (citations, references, data)
 
-| Criterion | Weight | Description |
-|-----------|--------|-------------|
-| {criterion1} | {weight1} | {what 1 vs 10 looks like} |
-| {criterion2} | {weight2} | {what 1 vs 10 looks like} |
-| ... | ... | ... |
+Soft gates (each pass = +1 point):
+- Technical specificity: concrete details (versions, APIs, measurements), not generalizations
+- Comparative insight: explains why a difference matters, not just that it exists
+- Analytical reasoning: connects facts into arguments, derives conclusions
+- Causal implications: traces cause → effect → consequence
+- Investigative effort: evidence of digging (source code, commits, configs) not just summarizing docs
 
-Weights must sum to 10.
+Score: 0 (hard gate fail) or 0-5 (soft gate count).
 ```
+
+Adapt the gate names and descriptions to the specific project. The hard/soft structure and scoring logic must be preserved — the eval script depends on it.
 
 ### autoresearch/<name>/eval.sh
 
