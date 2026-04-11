@@ -95,6 +95,7 @@ async def run_agent(
                 permission_mode="bypassPermissions",
                 cwd=str(cwd),
                 max_turns=50,
+                extra_args={"no-session-persistence": None},
             ),
         ):
             if isinstance(msg, ResultMessage):
