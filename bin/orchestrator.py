@@ -249,6 +249,28 @@ def prepare_workers(ar_dir: Path, active_branch: str, parallelism: int):
                     shutil.copytree(item, dest)
 
 
+# Files created by the orchestrator/experiment protocol — not project code
+WORKER_META_FILES = {
+    "experiment_id.txt", "experiment_id_output.txt",
+    "latest_score.txt", "latest_status.txt", "latest_hypothesis.txt",
+    "latest_diff.txt", "latest_parent.txt", "eval_scores.json",
+}
+
+
+def promote_worker(wdir: Path, ar_dir: Path, active_branch: str):
+    """Copy all project files from worker to best/ and branch/, skipping orchestrator metadata."""
+    for src in wdir.rglob("*"):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(wdir)
+        if rel.name in WORKER_META_FILES:
+            continue
+        for dest_base in [ar_dir / "best", ar_dir / "branches" / active_branch]:
+            dest = dest_base / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+
+
 def cleanup_workers(ar_dir: Path):
     w = ar_dir / "workers"
     if w.exists():
@@ -265,12 +287,14 @@ def force_pivot(state: dict, ar_dir: Path, project_dir: Path):
     branch_dir = ar_dir / "branches" / new_branch
     branch_dir.mkdir(parents=True, exist_ok=True)
 
-    for f in parse_editable_files(ar_dir):
-        src = project_dir / f
-        if src.exists():
-            dest = branch_dir / f
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
+    # Copy from best/ (the actual baseline, works for both existing-code and from-scratch projects)
+    best_dir = ar_dir / "best"
+    if best_dir.exists():
+        for src in best_dir.rglob("*"):
+            if src.is_file():
+                dest = branch_dir / src.relative_to(best_dir)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
 
     append_branch(ar_dir, {
         "branch": new_branch, "forked_from": "baseline", "status": "active",
@@ -613,15 +637,7 @@ async def main():
             promoted_exp = state["experiment_count"] + best_worker
             print(f"\n  PROMOTED worker-{best_worker} / experiment #{promoted_exp} (score: {best_worker_score:.2f})")
             wdir = ar_dir / "workers" / f"worker-{best_worker}"
-            for f in parse_editable_files(ar_dir):
-                src = wdir / f
-                if src.exists():
-                    best_dest = ar_dir / "best" / f
-                    best_dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src, best_dest)
-                    branch_dest = ar_dir / "branches" / state["active_branch"] / f
-                    branch_dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src, branch_dest)
+            promote_worker(wdir, ar_dir, state["active_branch"])
             state["best_score"] = best_worker_score
             state["last_promoted_experiment"] = promoted_exp
             (ar_dir / "best_score.txt").write_text(f"{best_worker_score}\n")
