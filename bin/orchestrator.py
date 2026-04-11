@@ -445,11 +445,20 @@ async def main():
 
         # Build guardrail message if needed
         guardrail_msg = ""
-        if state["discard_streak"] >= DISCARD_STREAK_WARN:
+        if state["discard_streak"] >= DISCARD_STREAK_PIVOT:
+            guardrail_msg = (
+                f"\nCRITICAL: {state['discard_streak']} consecutive rounds with no improvement. Strategy pivot forced.\n"
+                f"You are on a new branch forked from baseline. You MUST:\n"
+                f"1. List the assumptions the previous strategy was based on.\n"
+                f"2. INVERT at least one core assumption as your hypothesis.\n"
+                f"3. Check parking_lot.md for deferred ideas.\n"
+                f"Do NOT try minor variants of what already failed."
+            )
+        elif state["discard_streak"] >= DISCARD_STREAK_WARN:
             guardrail_msg = (
                 f"\nWARNING: {state['discard_streak']} consecutive rounds with no improvement.\n"
-                f"You MUST explain why your approach differs from recent failures, "
-                f"OR recommend a strategy pivot."
+                f"Before your next hypothesis, write an assumptions list: what does the current approach assume?\n"
+                f"Try inverting an assumption, or pick an idea from parking_lot.md."
             )
 
         # Launch parallel workers
@@ -462,6 +471,9 @@ async def main():
             exp_ids.append(exp_id)
             (wdir / "experiment_id.txt").write_text(exp_id)
 
+            # Determine parent experiment (the last promoted experiment, or 0 for baseline)
+            parent_exp = state.get("last_promoted_experiment", 0)
+
             user_msg = (
                 f"Run experiment {exp_num} (ID: {exp_id}).\n"
                 f"Worker directory: {wdir}\n"
@@ -469,10 +481,12 @@ async def main():
                 f"Eval command: bash {ar_dir}/eval.sh {wdir}\n"
                 f"Active branch: {state['active_branch']}\n"
                 f"Current best score: {state['best_score']}\n"
+                f"Parent experiment: #{parent_exp}\n"
                 f"{guardrail_msg}\n\n"
                 f"Read {ar_dir}/program.md for research directions and editable files.\n"
                 f"Read {ar_dir}/log.jsonl (last 10 lines) for recent experiment history.\n"
-                f"Read {ar_dir}/findings.md for summary of what's been tried.\n\n"
+                f"Read {ar_dir}/findings.md for summary of what's been tried.\n"
+                f"Read {ar_dir}/parking_lot.md for deferred ideas (if it exists).\n\n"
                 f"CRITICAL: Write '{exp_id}' to {wdir}/experiment_id_output.txt as your LAST action."
             )
 
@@ -572,9 +586,13 @@ async def main():
 
             improved = False if skip else check_noise(worker_score, state["best_score"], state.get("direction", "maximize"))
 
+            # Read parent from worker (the experiment writes it) or use the state default
+            parent = read_or(wdir / "latest_parent.txt", str(parent_exp)).strip()
+
             append_log(ar_dir, {
                 "experiment_id": exp_num, "branch": state["active_branch"],
-                "worker": i, "status": "keep" if improved else "discard",
+                "parent": parent, "worker": i,
+                "status": "keep" if improved else "discard",
                 "hypothesis": hypothesis, "diff": diff_text,
                 "score": worker_score, "best_score_at_time": state["best_score"],
                 "improved": improved,
@@ -591,7 +609,8 @@ async def main():
 
         # Ratchet
         if round_had_improvement and best_worker is not None:
-            print(f"\n  PROMOTED worker-{best_worker} (score: {best_worker_score:.2f})")
+            promoted_exp = state["experiment_count"] + best_worker
+            print(f"\n  PROMOTED worker-{best_worker} / experiment #{promoted_exp} (score: {best_worker_score:.2f})")
             wdir = ar_dir / "workers" / f"worker-{best_worker}"
             for f in parse_editable_files(ar_dir):
                 src = wdir / f
@@ -603,6 +622,7 @@ async def main():
                     branch_dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, branch_dest)
             state["best_score"] = best_worker_score
+            state["last_promoted_experiment"] = promoted_exp
             (ar_dir / "best_score.txt").write_text(f"{best_worker_score}\n")
             state["discard_streak"] = 0
             state["best_unchanged_count"] = 0

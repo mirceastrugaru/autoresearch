@@ -36,14 +36,17 @@ Read these files from `autoresearch/<name>/`:
 - `state.json` — orchestrator state
 - `branches.jsonl` — branch history
 - `findings.md` — auto-generated summary (if exists)
+- `parking_lot.md` — deferred ideas (if exists)
 
 Present a concise summary:
 
 - Starting score vs final best score (and % improvement)
 - Total experiments (keeps / discards / thoughts / crashes)
-- The kept changes: for each, show experiment ID, hypothesis, and score improvement
+- The kept changes: for each, show experiment ID, parent experiment, hypothesis, and score improvement
+- **Experiment genealogy**: show the chain of kept experiments (e.g., #0 → #2 → #5 → #8) so the user can see the lineage of the best result
 - Any convergence events (pivots, discard streaks)
 - Total API cost if available in state.json
+- Remaining parking lot ideas (if any)
 
 ## Let them drill in
 
