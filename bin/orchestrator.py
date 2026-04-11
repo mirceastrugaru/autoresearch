@@ -660,6 +660,27 @@ async def main():
     print(f"Total API cost: ${total_cost:.4f}")
     print(f"Best code: {ar_dir}/best/")
 
+    # Clean up headless agent sessions (--no-session-persistence doesn't work with SDK)
+    try:
+        from claude_agent_sdk import list_sessions, delete_session
+        sessions = list_sessions()
+        cleaned = 0
+        for s in sessions:
+            prompt = (s.first_prompt or "")[:200]
+            if any(
+                x in prompt.lower()
+                for x in [
+                    "run experiment", "initialize the autoresearch",
+                    "summarize the experiment", "worker directory:",
+                ]
+            ):
+                delete_session(s.session_id)
+                cleaned += 1
+        if cleaned:
+            print(f"Cleaned up {cleaned} headless agent sessions.")
+    except Exception:
+        pass
+
 
 if __name__ == "__main__":
     asyncio.run(main())
