@@ -105,10 +105,4 @@ While it runs, the output streams back to you. After each round completes, relay
 - Which worker was promoted (or if no improvement)
 - Current best score
 
-When the orchestrator finishes, immediately present the results — read `autoresearch/log.jsonl` and `autoresearch/best_score.txt` and show:
-- Starting score vs final score
-- Total improvement
-- List of kept experiments with hypotheses
-- The best code is in `autoresearch/best/`
-
-Do NOT tell them to run `/autoresearch:review`. You ARE the review. Show them the results right here.
+When the orchestrator finishes, invoke the `/autoresearch:review` skill to present the results.
