@@ -1,22 +1,8 @@
 # Autoresearch
 
-Autonomous experimentation for any codebase. Point it at code you want to optimize, give it a metric, and it runs parallel experiments — keeping what works, discarding what doesn't.
+Autonomous experimentation for any codebase or research task. Point it at something you want to improve, define how to measure "better," and it runs parallel experiments — keeping what works, discarding what doesn't.
 
-Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) and [ResearcherSkill](https://github.com/krzysztofdudek/ResearcherSkill), generalized beyond ML to anything you can measure.
-
-## What it does
-
-You have code. Something about it could be better — faster, smaller, more accurate. You can measure "better" with a command that prints a number.
-
-Autoresearch spawns parallel AI agents that each try a different change, measure the result, and compete. The best improvement wins and becomes the new baseline. Losers get thrown away. Repeat.
-
-```
-Round 1:  worker-1: 4.8M   worker-2: 5.1M ★  worker-3: 4.6M    → promote worker-2
-Round 2:  worker-1: 9.9M   worker-2: 12.3M ★ worker-3: 9.6M    → promote worker-2
-Round 3:  worker-1: 12.4M ★ worker-2: 12.3M  worker-3: 10.5M   → promote worker-1
-```
-
-After 30 rounds you come back to code that's measurably better, a log of every experiment that was tried, and a summary of what worked.
+Works on code (quantitative — eval script returns a number) and documents (qualitative — LLM judge scores against a rubric with hard/soft gates).
 
 ## Install
 
@@ -26,142 +12,54 @@ cd autoresearch
 ./install.sh
 ```
 
-The install script:
-- Registers the plugin in Claude Code (permanent — survives restarts)
-- Checks for Python 3.10+ and installs `claude-agent-sdk` if needed
-- Tells you if `ANTHROPIC_API_KEY` is missing and where to get one
+Restart Claude Code after install. `/autoresearch:design` and `/autoresearch:review` will be available.
 
-After install, restart Claude Code. The `/autoresearch:design` and `/autoresearch:review` commands will be available in every session.
+Requirements: Python 3.10+, `claude-agent-sdk`, `ANTHROPIC_API_KEY`.
 
 ## Usage
-
-In any Claude Code session:
 
 ```
 /autoresearch:design
 ```
 
-That's it. The skill:
-
-1. Asks what your research goal is
-2. Reads your codebase to understand the structure
-3. Presents a complete research plan for you to approve
-4. Writes the config files
-5. Asks how many rounds to run
-6. Launches the orchestrator and shows progress
-7. Presents results when done, with option to apply the best code
-
-You can also review past results anytime:
+The skill asks your goal, reads your codebase, presents a plan, writes config files, and runs the orchestrator loop.
 
 ```
 /autoresearch:review
 ```
 
-### What happens under the hood
+Review past results: what improved, what failed, convergence events.
 
-The orchestrator spawns N parallel AI agents per round (default 3). Each agent:
-- Reads the research directions and experiment history
-- Picks a hypothesis and makes a code change
-- Runs the eval script to measure the result
-
-After each round, the best improvement wins and becomes the new baseline. Failed experiments get reverted. The orchestrator tracks convergence — if agents get stuck, it pivots strategy automatically.
-
-State is persisted. If it crashes or you stop it, `/autoresearch:design` resumes from where it left off.
-
-### Manual orchestrator usage
-
-If you prefer to run the orchestrator yourself:
+### Manual
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-api03-...
-python3.13 /path/to/autoresearch/bin/orchestrator.py 10 .
-python3.13 /path/to/autoresearch/bin/orchestrator.py --help
+python3.13 /path/to/autoresearch-skills/bin/orchestrator.py 10 . <initiative-name>
+python3.13 /path/to/autoresearch-skills/bin/orchestrator.py --help
 ```
 
-### Review past results
-
-In Claude Code:
+## Architecture
 
 ```
-/autoresearch:review
-```
-
-Shows you what happened: how many experiments, what improved, what failed, convergence events. You can drill into any specific experiment.
-
-## How it works
-
-### Architecture
-
-```
-You ←→ Claude Code          Terminal
-         │                     │
+You ←→ Claude Code
+         │
     /design  /review      orchestrator.py
                                │
                     ┌──────────┼──────────┐
+                 worker-1   worker-2   worker-3
+                 (Agent SDK) (Agent SDK) (Agent SDK)
                     │          │          │
-                worker-1   worker-2   worker-3
-                (Agent SDK) (Agent SDK) (Agent SDK)
-                    │          │          │
-                 edit code  edit code  edit code
-                 run eval   run eval   run eval
-                    │          │          │
+                 edit + eval  edit + eval  edit + eval
                     └──────────┼──────────┘
                                │
-                         best wins →  new baseline
-                         rest reverted
+                         best wins → new baseline
 ```
 
-The slash commands run inside your Claude Code session — they're just instructions. The orchestrator is a Python script that uses the [Claude Agent SDK](https://pypi.org/project/claude-agent-sdk/) to spawn parallel agents. Each agent has full Claude Code capabilities: file access, bash, web search, MCP servers — whatever your Claude Code can do.
-
-### The ratchet
-
-Every round:
-1. Copy current best code to N isolated worker directories
-2. Each worker independently tries a change and measures the score
-3. Mechanical checks: lockfile violations, safety violations, noise threshold
-4. Best approved improvement gets promoted to the new baseline
-5. Everything else gets thrown away
-
-The score can only go up. Failed experiments are logged but never kept.
-
-### Convergence
-
-The orchestrator tracks discard streaks and plateaus:
-- **3 consecutive rounds without improvement**: warns the agents to try something different
-- **5 consecutive rounds**: forces a strategy pivot — creates a new branch from baseline
-- **8+ experiments without best score changing**: forces a pivot
-- **Every 10 experiments**: re-validates the best score to detect drift
-
-### Branching
-
-When forced to pivot, the orchestrator creates a new branch (a separate folder) forked from baseline. This escapes local optima — instead of tweaking the same approach, it starts fresh and tries something fundamentally different.
-
-### Thought experiments
-
-Agents can log reasoning without running code. If an agent determines an approach won't work through analysis alone, it writes a thought experiment instead of wasting a benchmark run.
-
-## File structure
-
-After running, your project will have:
-
-```
-your-project/
-  autoresearch/
-    program.md          ← research config (what to optimize, how)
-    eval.sh             ← scoring command
-    lockfile.txt        ← protected files
-    state.json          ← orchestrator state (for resume)
-    log.jsonl           ← every experiment, one JSON line each
-    findings.md         ← auto-generated summary
-    best_score.txt      ← current best score
-    best/               ← the best version of your code
-    branches/           ← strategy branches
-      main/             ← initial strategy
-      pivot-15/         ← divergent strategy (if pivoted)
-    branches.jsonl      ← branch registry
-```
+Each round: N parallel agents try different improvements, get scored, best gets promoted. Failed experiments logged and discarded. Convergence detection pivots strategy when stuck.
 
 ## Configuration
+
+Each initiative lives in `autoresearch/<name>/` with:
 
 ### program.md
 
@@ -169,49 +67,73 @@ your-project/
 # Research Program
 
 ## Target
-code.py — sorting benchmark
+{what you're improving}
 
 ## Metric
-Throughput (higher is better)
+{what "better" means}
 
 ## Mode
-quantitative
+{quantitative or qualitative}
+
+## Direction
+{maximize or minimize}
 
 ## Parallelism
 3
 
 ## Editable files
-- code.py
-- utils.py
+- {file1}
+- {file2}
 
 ## Directions to explore
-- Replace bubble sort with faster algorithm
-- Use numpy for array operations
-- Minimize allocations
+{specific ideas to try}
 ```
 
 ### Qualitative mode
 
-If your metric isn't a number (e.g., "does this prompt produce better output?"), set Mode to `qualitative` and add a Rubric section:
+For documents and research, set Mode to `qualitative` and add a Rubric section with hard and soft gates:
 
 ```markdown
-## Mode
-qualitative
-
 ## Rubric
-| Criterion | Weight | Scale | Description |
-|-----------|--------|-------|-------------|
-| Clarity   | 0.4    | 1-10  | How clear is the output? |
-| Accuracy  | 0.4    | 1-10  | Are facts correct? |
-| Brevity   | 0.2    | 1-10  | Is it concise? |
+
+Hard gates (fail any = score 0):
+- Correctness: no factual errors
+- Evidence: non-trivial claims must have backing
+
+Soft gates (each pass = +1 point, max 5):
+- Technical specificity: concrete details, not generalizations
+- Comparative insight: why differences matter
+- Analytical reasoning: facts connected into arguments
+- Causal implications: cause → effect → consequence traced
+- Investigative effort: evidence of real digging, not summarizing
+
+Score: 0 (hard gate fail) or 0-5 (soft gate count).
 ```
 
-The orchestrator will use 3 independent AI evaluators per experiment, taking the median score.
+The LLM judge (`bin/eval_qualitative.py`) reads the rubric and scores accordingly. The judge checks presence of evidence, not authenticity — experiment agents are responsible for doing real research.
 
-### Environment variables
+### eval.sh
 
-- `ANTHROPIC_API_KEY` — required for the orchestrator
-- `AUTORESEARCH_MODEL` — override the model (default: `claude-sonnet-4-5-20250929`)
+Quantitative: bash script, takes directory arg, prints one number.
+
+Qualitative: calls `eval_qualitative.py` which sends the document + rubric to an LLM judge.
+
+### lockfile.txt
+
+Files agents must not edit, one per line.
+
+## Convergence
+
+- 3 rounds without improvement: warns agents to diversify
+- 5 rounds: forces strategy pivot (new branch from baseline)
+- 8+ experiments with no best score change: forces pivot
+- Every 10 experiments: re-validates best score
+
+## Environment variables
+
+- `ANTHROPIC_API_KEY` — required
+- `AUTORESEARCH_MODEL` — model for experiment agents (default: `claude-sonnet-4-5-20250929`)
+- `AUTORESEARCH_JUDGE_MODEL` — model for qualitative judge (default: `claude-sonnet-4-5-20250929`)
 
 ## License
 
