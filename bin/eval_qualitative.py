@@ -29,7 +29,7 @@ def parse_editable_files(text: str) -> list[str]:
     return [l.strip().lstrip("- ") for l in section.splitlines() if l.strip()]
 
 
-JUDGE_MODEL = os.environ.get("AUTORESEARCH_JUDGE_MODEL", os.environ.get("AUTORESEARCH_MODEL", None))
+JUDGE_MODEL = os.environ.get("AUTORESEARCH_JUDGE_MODEL", "claude-sonnet-4-6")
 
 
 async def run_judge(prompt: str) -> str:
@@ -37,7 +37,7 @@ async def run_judge(prompt: str) -> str:
     opts = ClaudeAgentOptions(
         system_prompt="You are a strict evaluator. Respond ONLY with JSON. No other text.",
         permission_mode="bypassPermissions",
-        max_turns=1,
+        max_turns=None,
         extra_args={"no-session-persistence": None},
     )
     if JUDGE_MODEL:
@@ -80,7 +80,7 @@ def main():
             parts.append(f"=== {f} ===\n[NOT FOUND]")
     document = "\n\n".join(parts)
 
-    prompt = f"""Evaluate this document against the rubric. Be harsh.
+    prompt = f"""You are a precise, consistent research evaluator. Your job is to reward real investigative work and penalize vague, unsourced, or fabricated content. Apply each gate as a checklist — the same document should always get the same score. Evaluate the document below against each gate in the rubric.
 
 TARGET: {target}
 
@@ -90,14 +90,67 @@ RUBRIC:
 DOCUMENT:
 {document}
 
-For each gate in the rubric, output pass or fail with a one-sentence reason.
-If a gate is marked "hard", failing it means final score = 0 regardless of other gates.
-For soft gates, count passes. Final score = number of soft gates passed.
+---
 
-Respond ONLY with JSON:
+EVALUATION INSTRUCTIONS:
+
+For each gate, apply the specific test below. Do not interpret loosely — if the test is not clearly met, it fails.
+
+HARD GATES — if either fails, final_score = 0, stop counting soft gates:
+
+correctness:
+  FAIL if ANY of these are true:
+  - A URL is cited but the domain or path does not plausibly match the claimed content
+  - A statistic is given without a traceable source (no URL, no document name, no publication)
+  - A certification level is stated (e.g. "ASIL D", "SIL 4", "Class C") without citing the specific certification document or notified body
+  - A claim is internally contradicted elsewhere in the document
+  PASS only if every specific factual claim is backed by a named, plausible, verifiable source
+
+evidence:
+  FAIL if ANY of these are true:
+  - A non-trivial claim (adoption figures, certification status, market position, technical specs) has no citation at all
+  - A citation points only to a vendor's own marketing page with no corroborating independent source
+  - A section says "TBD", "limited public data", "not documented" for a topic the rubric requires coverage of
+  PASS only if every major claim in every required section has a specific, named, non-marketing source
+
+SOFT GATES — count how many pass:
+
+For each soft gate, answer YES or NO to the specific question:
+
+technical_specificity:
+  Does the document contain at least 5 concrete technical numbers (memory footprints in KB/MB, specific MCU families by name, commit counts, star counts with retrieval date, version numbers, benchmark figures)?
+  YES = pass, NO = fail
+
+comparative_insight:
+  Does the document explain *why* differences between frameworks matter for a specific regulated project — not just that differences exist, but the concrete consequence (e.g. certification timeline, SOUP dossier scope, tool qualification cost)?
+  YES = pass, NO = fail
+
+analytical_reasoning:
+  Does the document derive conclusions from multiple evidence points — not just list facts but connect them into an argument with a stated conclusion?
+  YES = pass, NO = fail
+
+causal_implications:
+  Does the document trace at least 2 adoption patterns to their root causes with evidence (e.g. why a framework dominates or is absent in a specific domain, traced to a specific technical or regulatory constraint)?
+  YES = pass, NO = fail
+
+investigative_effort:
+  Does the document contain at least 3 of: (a) actual quoted forum/Reddit posts with usernames or thread links, (b) GitHub repo stats with retrieval date, (c) named certification document or certificate number, (d) named real-world product deployment, (e) job posting counts with source and date?
+  YES = pass, NO = fail
+
+trend_analysis:
+  Does the document show directional movement over time with data — not just current state, but at least 2 data points at different times (e.g. star counts in 2023 vs 2025, job postings trending up/down, conference talk counts by year)?
+  YES = pass, NO = fail
+
+regulated_domain_coverage:
+  Does the document provide framework-specific certification status (pass/fail/roadmap with source) for at least 5 distinct regulated domains from this list: automotive/ISO 26262, aviation/DO-178C, medical/IEC 62304, railway/EN 50128, industrial/IEC 61508, nuclear/IEC 61513, defense/MIL-STD, marine/DNV?
+  YES = pass, NO = fail
+
+---
+
+Respond ONLY with JSON. No preamble, no explanation outside the JSON:
 {{
   "gates": {{
-    "gate_name": {{"type": "hard|soft", "result": "pass|fail", "reason": "one sentence"}}
+    "gate_name": {{"type": "hard|soft", "result": "pass|fail", "reason": "one sentence citing specific evidence or specific deficiency"}}
   }},
   "hard_gate_failed": true|false,
   "soft_gates_passed": N,
@@ -105,7 +158,7 @@ Respond ONLY with JSON:
 }}
 
 If any hard gate failed, final_score MUST be 0.
-Otherwise final_score = soft_gates_passed."""
+Otherwise final_score = number of soft gates with result=pass."""
 
     response = asyncio.run(run_judge(prompt))
 
