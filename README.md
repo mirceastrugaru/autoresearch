@@ -14,7 +14,7 @@ cd autoresearch
 
 Restart Claude Code after install. `/autoresearch:design` and `/autoresearch:review` will be available.
 
-Requirements: Python 3.10+, `claude-agent-sdk`, `ANTHROPIC_API_KEY`.
+Requirements: Python 3.10+, `claude-agent-sdk`, Claude Code authenticated.
 
 ## Usage
 
@@ -33,7 +33,6 @@ Review past results: what improved, what failed, convergence events.
 ### Manual
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-api03-...
 python3.13 /path/to/autoresearch-skills/bin/orchestrator.py 10 . <initiative-name>
 python3.13 /path/to/autoresearch-skills/bin/orchestrator.py --help
 ```
@@ -138,7 +137,6 @@ Files agents must not edit, one per line.
 
 ## Environment variables
 
-- `ANTHROPIC_API_KEY` — required
 - `AUTORESEARCH_MODEL` — model for experiment agents (default: `claude-sonnet-4-6`)
 - `AUTORESEARCH_JUDGE_MODEL` — model for qualitative judge (default: `claude-sonnet-4-6`)
 

@@ -157,12 +157,10 @@ When they confirm, find the orchestrator script. Search for it:
 1. Common locations: `~/Desktop/Projects/autoresearch-skills/bin/orchestrator.py`
 2. Search: `find ~ -path "*/autoresearch-skills/bin/orchestrator.py" -maxdepth 4 2>/dev/null | head -1`
 
-If `ANTHROPIC_API_KEY` is not in the environment, ask the human for it before running.
-
 Run it directly using the Bash tool (NOT in background — you need to see the output):
 
 ```bash
-ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY /opt/homebrew/bin/python3.13 <orchestrator_path> <rounds> . <name>
+/opt/homebrew/bin/python3.13 <orchestrator_path> <rounds> . <name>
 ```
 
 Set the Bash timeout to 600000 (10 minutes).

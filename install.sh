@@ -53,17 +53,7 @@ else
   fi
 fi
 
-# Check API key
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-  echo ""
-  echo "NOTE: ANTHROPIC_API_KEY is not set."
-  echo "  The slash commands work without it."
-  echo "  The orchestrator needs it. Get one at:"
-  echo "  https://console.anthropic.com/settings/keys"
-  echo ""
-  echo "  Add to your shell profile:"
-  echo "    export ANTHROPIC_API_KEY=sk-ant-api03-..."
-fi
+# No API key needed — orchestrator uses Claude Code's existing auth via the Agent SDK.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
