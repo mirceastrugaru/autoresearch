@@ -67,7 +67,6 @@ DISCARD_STREAK_PIVOT = 5
 PLATEAU_THRESHOLD = 8
 REVALIDATE_EVERY = 10
 NOISE_THRESHOLD = 0.01
-LOG_TAIL_SIZE = 10
 
 # ── Agent runner ─────────────────────────────────────────────────────────────
 
@@ -155,12 +154,12 @@ def read_or(path: Path, default: str = "") -> str:
         return default
 
 
-def read_log_tail(ar_dir: Path, n: int) -> str:
+def read_full_log(ar_dir: Path) -> str:
     p = ar_dir / "log.jsonl"
     if not p.exists():
         return "none yet"
-    lines = p.read_text().strip().splitlines()
-    return "\n".join(lines[-n:]) if lines else "none yet"
+    text = p.read_text().strip()
+    return text if text else "none yet"
 
 
 # ── State management ─────────────────────────────────────────────────────────
@@ -252,9 +251,10 @@ def prepare_workers(ar_dir: Path, active_branch: str, parallelism: int):
 # Files created by the orchestrator/experiment protocol — not project code
 WORKER_META_FILES = {
     "experiment_id.txt", "experiment_id_output.txt",
-    "latest_score.txt", "latest_status.txt", "latest_hypothesis.txt",
-    "latest_diff.txt", "latest_parent.txt", "eval_scores.json",
+    "score.txt", "status.txt", "hypothesis.txt",
+    "diff.txt", "parent.txt", "summary.txt", "eval_scores.json",
 }
+WORKER_META_PREFIXES = ("parking_lot_",)
 
 
 def promote_worker(wdir: Path, ar_dir: Path, active_branch: str):
@@ -265,10 +265,28 @@ def promote_worker(wdir: Path, ar_dir: Path, active_branch: str):
         rel = src.relative_to(wdir)
         if rel.name in WORKER_META_FILES:
             continue
+        if any(rel.name.startswith(p) for p in WORKER_META_PREFIXES):
+            continue
         for dest_base in [ar_dir / "best", ar_dir / "branches" / active_branch]:
             dest = dest_base / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
+
+
+def merge_parking_lots(ar_dir: Path, parallelism: int):
+    """Merge per-worker parking lot files into the shared parking_lot.md."""
+    new_entries = []
+    for i in range(1, parallelism + 1):
+        wfile = ar_dir / "workers" / f"worker-{i}" / f"parking_lot_{i}.txt"
+        if wfile.exists():
+            text = wfile.read_text().strip()
+            if text:
+                new_entries.append(text)
+
+    if new_entries:
+        existing = read_or(ar_dir / "parking_lot.md", "# Parking Lot\n\nDeferred ideas.\n")
+        with open(ar_dir / "parking_lot.md", "w") as f:
+            f.write(existing.rstrip() + "\n\n" + "\n\n".join(new_entries) + "\n")
 
 
 def cleanup_workers(ar_dir: Path):
@@ -341,7 +359,8 @@ def _build_shared_context(ar_dir: Path, experiment_skill: str) -> str:
     """
     program = read_or(ar_dir / "program.md", "")
     findings = read_or(ar_dir / "findings.md", "")
-    log_tail = read_log_tail(ar_dir, LOG_TAIL_SIZE)
+    full_log = read_full_log(ar_dir)
+    parking_lot = read_or(ar_dir / "parking_lot.md", "")
 
     # Best document (the current baseline workers will improve)
     best_dir = ar_dir / "best"
@@ -359,7 +378,8 @@ def _build_shared_context(ar_dir: Path, experiment_skill: str) -> str:
         f"## SHARED CONTEXT (pre-loaded for all workers this round)\n\n"
         f"### program.md\n{program}\n\n"
         f"### findings.md\n{findings}\n\n"
-        f"### log.jsonl (last {LOG_TAIL_SIZE} entries)\n{log_tail}\n\n"
+        f"### log.jsonl (full history)\n{full_log}\n\n"
+        f"### parking_lot.md\n{parking_lot}\n\n"
         f"### Current best document\n{best_content}"
     )
 
@@ -506,19 +526,47 @@ async def main():
         # Build guardrail message if needed
         guardrail_msg = ""
         if state["discard_streak"] >= DISCARD_STREAK_PIVOT:
+            # Extract recent failed hypotheses from log for concrete stall analysis
+            recent_log = read_full_log(ar_dir)
+            recent_failures = []
+            for line in recent_log.strip().splitlines()[-15:]:
+                try:
+                    entry = json.loads(line)
+                    if entry.get("status") in ("discard", "thought"):
+                        h = entry.get("hypothesis", "")
+                        s = entry.get("score", 0)
+                        if h:
+                            recent_failures.append(f"  - [{entry.get('status')}] score={s}: {h}")
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            failures_text = "\n".join(recent_failures) if recent_failures else "  (none recorded)"
             guardrail_msg = (
                 f"\nCRITICAL: {state['discard_streak']} consecutive rounds with no improvement. Strategy pivot forced.\n"
-                f"You are on a new branch forked from baseline. You MUST:\n"
-                f"1. List the assumptions the previous strategy was based on.\n"
-                f"2. INVERT at least one core assumption as your hypothesis.\n"
-                f"3. Check parking_lot.md for deferred ideas.\n"
-                f"Do NOT try minor variants of what already failed."
+                f"Recent failed/thought experiments:\n{failures_text}\n\n"
+                f"You are on a new branch. You MUST:\n"
+                f"1. Identify what assumption ALL of the above failures share.\n"
+                f"2. INVERT that assumption as your hypothesis — not a minor variant.\n"
+                f"3. Check parking_lot.md (provided in system prompt) for deferred ideas.\n"
+                f"Do NOT try anything resembling the failed experiments above."
             )
         elif state["discard_streak"] >= DISCARD_STREAK_WARN:
+            recent_log = read_full_log(ar_dir)
+            recent_failures = []
+            for line in recent_log.strip().splitlines()[-9:]:
+                try:
+                    entry = json.loads(line)
+                    if entry.get("status") in ("discard", "thought"):
+                        h = entry.get("hypothesis", "")
+                        if h:
+                            recent_failures.append(f"  - {h}")
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            failures_text = "\n".join(recent_failures) if recent_failures else "  (none recorded)"
             guardrail_msg = (
                 f"\nWARNING: {state['discard_streak']} consecutive rounds with no improvement.\n"
-                f"Before your next hypothesis, write an assumptions list: what does the current approach assume?\n"
-                f"Try inverting an assumption, or pick an idea from parking_lot.md."
+                f"Recent failed approaches:\n{failures_text}\n"
+                f"Before your next hypothesis, identify what these share. Try inverting that assumption, "
+                f"or pick an untested idea from parking_lot.md (provided in system prompt)."
             )
 
         # Pre-load shared context for caching — same for all workers this round.
@@ -542,6 +590,7 @@ async def main():
 
             user_msg = (
                 f"Run experiment {exp_num} (ID: {exp_id}).\n"
+                f"Worker number: {i}\n"
                 f"Worker directory: {wdir}\n"
                 f"Autoresearch directory: {ar_dir}\n"
                 f"Eval command: bash {ar_dir}/eval.sh {wdir}\n"
@@ -549,9 +598,9 @@ async def main():
                 f"Current best score: {state['best_score']}\n"
                 f"Parent experiment: #{parent_exp}\n"
                 f"{guardrail_msg}\n\n"
-                f"Context files (program.md, findings.md, log tail, best document) are already "
-                f"provided in your system prompt above — do NOT re-read them unless you need "
-                f"content beyond what is shown. Read parking_lot.md from disk if it exists.\n\n"
+                f"program.md, findings.md, full log, parking_lot.md, and current best document are "
+                f"already in your system prompt — do NOT re-read them from disk.\n"
+                f"Write deferred ideas to {wdir}/parking_lot_{i}.txt (not parking_lot.md).\n\n"
                 f"CRITICAL: Write '{exp_id}' to {wdir}/experiment_id_output.txt as your LAST action."
             )
 
@@ -621,27 +670,28 @@ async def main():
                 continue
 
             # Thought experiment?
-            status = read_or(wdir / "latest_status.txt", "real").strip()
-            hypothesis = read_or(wdir / "latest_hypothesis.txt", "").strip()
+            status = read_or(wdir / "status.txt", "real").strip()
+            hypothesis = read_or(wdir / "hypothesis.txt", "").strip()
+            summary = read_or(wdir / "summary.txt", "").strip()
 
             if status == "thought":
                 print(f"  worker-{i}: THOUGHT — {hypothesis[:80]}")
                 append_log(ar_dir, {
                     "experiment_id": exp_num, "branch": state["active_branch"],
                     "worker": i, "status": "thought",
-                    "hypothesis": hypothesis, "diff": "",
+                    "hypothesis": hypothesis, "summary": summary, "diff": "",
                     "score": 0, "best_score_at_time": state["best_score"],
                     "improved": False,
                 })
                 continue
 
             # Score + diff
-            score_str = read_or(wdir / "latest_score.txt", "0").strip()
+            score_str = read_or(wdir / "score.txt", "0").strip()
             try:
                 worker_score = float(score_str)
             except ValueError:
                 worker_score = 0.0
-            diff_text = read_or(wdir / "latest_diff.txt", "").strip()
+            diff_text = read_or(wdir / "diff.txt", "").strip()
 
             print(f"  worker-{i}: score={worker_score:.2f} (best={state['best_score']:.2f})")
 
@@ -661,7 +711,7 @@ async def main():
             improved = False if skip else check_noise(worker_score, state["best_score"], state.get("direction", "maximize"))
 
             # Read parent from worker (the experiment writes it) or use the state default
-            parent = read_or(wdir / "latest_parent.txt", str(parent_exp)).strip()
+            parent = read_or(wdir / "parent.txt", str(parent_exp)).strip()
 
             # Capture judge gate details if available (qualitative mode)
             eval_scores = None
@@ -681,7 +731,7 @@ async def main():
                 "experiment_id": exp_num, "branch": state["active_branch"],
                 "parent": parent, "worker": i,
                 "status": "keep" if improved else "discard",
-                "hypothesis": hypothesis, "diff": diff_text,
+                "hypothesis": hypothesis, "summary": summary, "diff": diff_text,
                 "score": worker_score, "best_score_at_time": state["best_score"],
                 "improved": improved,
                 "tokens": {
@@ -724,6 +774,7 @@ async def main():
 
         state["experiment_count"] += parallelism
         write_state(ar_dir, state)
+        merge_parking_lots(ar_dir, parallelism)
         cleanup_workers(ar_dir)
         print(f"  Round tokens: in={round_input_tokens} out={round_output_tokens} "
               f"cache_read={round_cache_read} cache_create={round_cache_create}")
@@ -731,14 +782,14 @@ async def main():
         # Periodic summarize
         if round_num % SUMMARIZE_EVERY == 0:
             print(f"\n--- SUMMARIZE (round {round_num}) ---")
-            log20 = read_log_tail(ar_dir, 20)
+            full_log = read_full_log(ar_dir)
             findings = read_or(ar_dir / "findings.md", "none")
             branches_text = read_or(ar_dir / "branches.jsonl", "none")
             output, _ = await run_agent(
                 system_prompt=summarize_skill,
                 user_prompt=(
                     f"Summarize the experiment log. Autoresearch directory: {ar_dir}\n"
-                    f"Recent log entries (last 20): {log20}\n"
+                    f"Full log: {full_log}\n"
                     f"Existing findings: {findings}\n"
                     f"Branch registry: {branches_text}"
                 ),

@@ -4,19 +4,22 @@ Headless. No human. One invocation = one experiment. Isolated worker directory.
 
 ## inputs
 
-Provided in prompt: experiment ID, worker dir, autoresearch dir, eval command, branch, best score, parent experiment, guardrail warning (if any).
+Provided in system prompt: program.md, findings.md, full log, parking_lot.md, current best document.
+Provided in user prompt: experiment ID, worker dir, autoresearch dir, eval command, branch, best score, parent experiment, guardrail warning (if any).
 
 ## steps
 
-1. READ: `program.md` (directions, editable files, rubric), `log.jsonl` (last 10), `findings.md`, `parking_lot.md`, `branches.jsonl`
-2. THINK: convergence signals? untested assumptions? invalidation risk? parking lot ideas? → decide hypothesis
-3. THOUGHT EXPERIMENT (optional): if conclusive without testing → write `thought` to `latest_status.txt`, analysis to `latest_hypothesis.txt`, `0` to `latest_score.txt`, skip to step 8
-4. HYPOTHESIS: one sentence, write to `latest_hypothesis.txt`
-5. EDIT: worker dir files only. only files listed editable in program.md. never edit eval.sh/lockfile.txt/program.md/state.json/log.jsonl/branches.jsonl/findings.md/parking_lot.md
-6. DIFF: write text diff to `latest_diff.txt`
-7. EVAL: run eval command. write number to `latest_score.txt`. write `real` to `latest_status.txt`
-8. REFLECT: what confirmed/surprised? ideas for later → append to `parking_lot.md`. write parent to `latest_parent.txt`
-9. LAST ACTION: write experiment ID to `experiment_id_output.txt`
+1. READ: system prompt already contains program.md, findings.md, full log, parking_lot.md, current best. Read `branches.jsonl` from disk if you need branch history beyond what's in the log.
+2. THINK: what has been tried? what failed? what's in the parking lot? what untested direction exists? → decide hypothesis
+3. THOUGHT EXPERIMENT (optional): if conclusive without testing → write `thought` to `status.txt`, analysis to `hypothesis.txt`, `0` to `score.txt`, skip to step 9
+4. HYPOTHESIS: one sentence, write to `hypothesis.txt`
+5. EDIT: worker dir files only. only files listed editable in program.md. never edit eval.sh/lockfile.txt/program.md/state.json/log.jsonl/branches.jsonl/findings.md/parking_lot.md or parking_lot_*.txt files
+6. DIFF: write text diff to `diff.txt`
+7. EVAL: run eval command. write number to `score.txt`. write `real` to `status.txt`
+8. SUMMARY: write a paragraph to `summary.txt` — what you changed, what the result showed, what was surprising or notable. This is the record future workers will learn from.
+9. PARKING LOT: write any deferred ideas to `parking_lot_<worker_number>.txt` (e.g. `parking_lot_1.txt` for worker-1). One idea per line. The orchestrator will merge these safely. Draw from the parking_lot.md in your system prompt — if an idea there is relevant to your experiment, note whether you tested it and what you found.
+10. write parent experiment number to `parent.txt`
+11. LAST ACTION: write experiment ID to `experiment_id_output.txt`
 
 ## scoring
 
@@ -28,7 +31,7 @@ If program.md mode=qualitative: you improve a document, not code. Use web search
 
 ## when stuck (guardrail active)
 
-List assumptions of current strategy. Invert one. Check parking lot.
+The guardrail message in your user prompt lists recent failed experiments. Identify what assumption they share. Invert it. Check parking_lot.md.
 
 Strategies: ablation (remove), amplification (push further), combination (merge wins), inversion (opposite), isolation (one var), simplification (reduce), scaling (order of magnitude), decomposition (split).
 
