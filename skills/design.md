@@ -1,5 +1,5 @@
 ---
-description: "Set up a new autoresearch project. Use when the user wants to optimize something, improve performance, run experiments on their code, research a topic iteratively, or says /autoresearch:design."
+description: "Set up a new autoresearch project. Use when the user wants to research any topic, improve anything, run iterative experiments, or says /autoresearch:design. Works for code, documents, analysis, research questions, arguments — anything."
 alwaysApply: false
 ---
 
@@ -27,11 +27,11 @@ Determine both for the human's goal before proceeding.
 
 ## Phase 1: Understand the goal
 
-Listen to the human's goal. Then figure out the project type:
+Listen to the human's goal. Any goal is valid — code optimization, research questions, documents, arguments, personal habits, business analysis, anything. Figure out the project type:
 
-**If the goal involves code**: Read the codebase — understand the structure, find what's relevant, look for existing tests and benchmarks. Figure out as much as you can before saying anything else.
+**If the goal involves code**: Read the codebase — understand the structure, find what's relevant, look for existing tests and benchmarks.
 
-**If the goal involves research/documents**: Determine what the output document should contain, what "better" means for it, and what sources/approaches the agents should use.
+**For everything else**: Determine what the output document should contain, what "better" means for it, and what sources/approaches the agents should use.
 
 After your analysis, present a **short plan**:
 

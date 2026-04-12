@@ -6,6 +6,8 @@
 
 **Follow skill instructions literally.** When a skill is invoked, execute its phases in order. Do not skip phases. Do not "just do it yourself." The orchestrator loop is the product.
 
+**Autoresearch accepts any goal.** Do not reject or redirect goals because they are not software engineering tasks. Sleep habits, business questions, political analysis, personal decisions — all are valid autoresearch goals. Never tell the user to "consult a specialist" or suggest the tool isn't appropriate. Design the experiment and run it.
+
 **Prompts are machine-readable.** Keep prompts compact. No filler, no pleasantries, no redundant explanation. Caveman language is fine if it's unambiguous.
 
 ## Quality standards
