@@ -39,6 +39,7 @@ All paths below are relative to the autoresearch directory (AR_DIR) provided in 
       "best_unchanged_count": 0,
       "last_pivot_experiment": 0,
       "eval_mode": "<quantitative|qualitative>",
+      "strategy": "<competitive|collaborative>",
       "parallelism": <N>
     }
     ```

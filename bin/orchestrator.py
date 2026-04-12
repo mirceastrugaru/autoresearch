@@ -41,7 +41,7 @@ def preflight():
 
     # Prompt templates
     prompts_dir = Path(__file__).parent.parent / "prompts"
-    for name in ("init.md", "experiment.md", "summarize.md"):
+    for name in ("init.md", "experiment.md", "summarize.md", "merge.md"):
         if not (prompts_dir / name).exists():
             errors.append(f"Missing prompt template: {prompts_dir / name}")
 
@@ -144,6 +144,18 @@ def read_direction(ar_dir: Path) -> str:
     return m.group(1).lower() if m else "maximize"
 
 
+def read_strategy(ar_dir: Path) -> str:
+    """Read strategy from program.md. Returns 'competitive' or 'collaborative'.
+    Backwards compat: if Strategy missing, infer from Mode."""
+    text = (ar_dir / "program.md").read_text()
+    m = re.search(r"## Strategy\s*\n(\w+)", text)
+    if m:
+        return m.group(1).lower()
+    # backwards compat: qualitative → collaborative, quantitative → competitive
+    mode = read_eval_mode(ar_dir)
+    return "collaborative" if mode == "qualitative" else "competitive"
+
+
 # ── File helpers ─────────────────────────────────────────────────────────────
 
 
@@ -228,6 +240,19 @@ def check_safety_violation(diff_text: str) -> bool:
             if c == f or c.endswith("/" + f):
                 return True
     return False
+
+
+def passed_hard_gates(wdir: Path, worker_score: float) -> bool:
+    """In collaborative mode: did this worker pass hard gates?
+    Reads eval_scores.json if present. Falls back to score > 0."""
+    eval_scores_path = wdir / "eval_scores.json"
+    if eval_scores_path.exists():
+        try:
+            data = json.loads(eval_scores_path.read_text())
+            return not data.get("hard_gate_failed", True)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return worker_score > 0
 
 
 def check_noise(new_score: float, best_score: float, direction: str = "maximize") -> bool:
@@ -414,7 +439,7 @@ async def main():
         print()
         print("Environment:")
         print("  ANTHROPIC_API_KEY     Required. Get from console.anthropic.com/settings/keys")
-        print("  AUTORESEARCH_MODEL    Model to use (default: claude-sonnet-4-5-20250929)")
+        print("  AUTORESEARCH_MODEL    Model to use (default: claude-sonnet-4-6)")
         print()
         print("Setup: run /autoresearch:design in Claude Code first to create config files.")
         sys.exit(0)
@@ -464,6 +489,7 @@ async def main():
     init_skill = (prompts_dir / "init.md").read_text()
     experiment_skill = (prompts_dir / "experiment.md").read_text()
     summarize_skill = (prompts_dir / "summarize.md").read_text()
+    merge_skill = (prompts_dir / "merge.md").read_text()
 
     print("=== AUTORESEARCH ORCHESTRATOR ===")
     print(f"Project: {project_dir}")
@@ -479,15 +505,18 @@ async def main():
         print("\nResuming...")
         state = read_state(ar_dir)
         state["eval_mode"] = read_eval_mode(ar_dir)
+        state["strategy"] = read_strategy(ar_dir)
         state["parallelism"] = read_parallelism(ar_dir)
         state["direction"] = read_direction(ar_dir)
         print(f"  Round: {state['round']} / Experiments: {state['experiment_count']} / Best: {state['best_score']}")
         print(f"  Branch: {state['active_branch']} / Discard streak: {state['discard_streak']}")
+        print(f"  Strategy: {state['strategy']} / Measurement: {state['eval_mode']}")
     else:
         eval_mode = read_eval_mode(ar_dir)
+        strategy = read_strategy(ar_dir)
         parallelism = read_parallelism(ar_dir)
         direction = read_direction(ar_dir)
-        print(f"Eval mode: {eval_mode} / Parallelism: {parallelism} / Direction: {direction}")
+        print(f"Strategy: {strategy} / Measurement: {eval_mode} / Parallelism: {parallelism} / Direction: {direction}")
         print("\n--- INIT ---")
 
         output, _ = await run_agent(
@@ -510,6 +539,7 @@ async def main():
 
         state = read_state(ar_dir)
         state["direction"] = direction
+        state["strategy"] = strategy
         print(f"Baseline score: {state['best_score']}")
 
     # ── Phase 2: Experiment loop ──
@@ -785,25 +815,102 @@ async def main():
                     best_worker = i
                     best_worker_score = worker_score
 
-        # Ratchet
-        if round_had_improvement and best_worker is not None:
-            promoted_exp = state["experiment_count"] + best_worker
-            print(f"\n  PROMOTED worker-{best_worker} / experiment #{promoted_exp} (score: {best_worker_score:.2f})")
-            wdir = ar_dir / "workers" / f"worker-{best_worker}"
-            promote_worker(wdir, ar_dir, state["active_branch"])
-            state["best_score"] = best_worker_score
-            state["last_promoted_experiment"] = promoted_exp
-            (ar_dir / "best_score.txt").write_text(f"{best_worker_score}\n")
-            state["discard_streak"] = 0
-            state["best_unchanged_count"] = 0
-            dlog(ar_dir, "promoted", worker=best_worker, exp=promoted_exp,
-                 new_best=best_worker_score)
+        # Strategy fork: competitive vs collaborative
+        strategy = state.get("strategy", "competitive")
+
+        if strategy == "collaborative":
+            # Collect all workers that passed hard gates
+            passing = []
+            for i in range(1, parallelism + 1):
+                wdir = ar_dir / "workers" / f"worker-{i}"
+                exp_num = state["experiment_count"] + i
+                if isinstance(results[i - 1], Exception):
+                    continue
+                score_str = read_or(wdir / "score.txt", "0").strip()
+                try:
+                    wscore = float(score_str)
+                except ValueError:
+                    wscore = 0.0
+                summary = read_or(wdir / "summary.txt", "").strip()
+                if passed_hard_gates(wdir, wscore):
+                    passing.append((i, wscore, summary, exp_num))
+
+            if passing:
+                best_passing_score = max(s for _, s, _, _ in passing)
+                passing_nums = [i for i, _, _, _ in passing]
+                print(f"\n  COLLABORATIVE MERGE: {len(passing)} workers passed hard gates {passing_nums}")
+                dlog(ar_dir, "collaborative_merge_start", passing_workers=passing_nums,
+                     best_score=best_passing_score)
+
+                # Build merge prompt
+                editable_files = parse_editable_files(ar_dir)
+                base_docs = []
+                for f in editable_files:
+                    p = ar_dir / "best" / f
+                    base_docs.append(f"=== BASE: {f} ===\n{read_or(p, '[not found]')}")
+
+                worker_docs = []
+                for i, wscore, wsummary, wexp in passing:
+                    wdir = ar_dir / "workers" / f"worker-{i}"
+                    parts = [f"--- Worker {i} (score={wscore:.2f}, exp=#{wexp}) ---"]
+                    parts.append(f"Summary: {wsummary}")
+                    for f in editable_files:
+                        p = wdir / f
+                        parts.append(f"=== {f} ===\n{read_or(p, '[not found]')}")
+                    worker_docs.append("\n".join(parts))
+
+                merge_user_msg = (
+                    f"Merge passing worker outputs into the baseline.\n"
+                    f"Autoresearch directory: {ar_dir}\n"
+                    f"Active branch: {state['active_branch']}\n"
+                    f"Editable files: {editable_files}\n"
+                    f"Output paths: best/ = {ar_dir / 'best'}, branch/ = {ar_dir / 'branches' / state['active_branch']}\n\n"
+                    f"BASE DOCUMENTS:\n" + "\n\n".join(base_docs) + "\n\n"
+                    f"PASSING WORKER OUTPUTS:\n" + "\n\n".join(worker_docs)
+                )
+
+                merge_output, _ = await run_agent(
+                    system_prompt=merge_skill,
+                    user_prompt=merge_user_msg,
+                    cwd=ar_dir,
+                    name="merge",
+                )
+                print(f"  {merge_output[:200]}")
+
+                state["best_score"] = best_passing_score
+                state["last_promoted_experiment"] = passing[-1][3]
+                (ar_dir / "best_score.txt").write_text(f"{best_passing_score}\n")
+                state["discard_streak"] = 0
+                state["best_unchanged_count"] = 0
+                dlog(ar_dir, "collaborative_merge_done", passing_workers=passing_nums,
+                     new_best=best_passing_score)
+            else:
+                state["discard_streak"] += 1
+                state["best_unchanged_count"] += parallelism
+                print(f"\n  No workers passed hard gates. Discard streak: {state['discard_streak']}")
+                dlog(ar_dir, "no_improvement", discard_streak=state["discard_streak"],
+                     best_unchanged_count=state["best_unchanged_count"])
+
         else:
-            state["discard_streak"] += 1
-            state["best_unchanged_count"] += parallelism
-            print(f"\n  No improvement. Discard streak: {state['discard_streak']}")
-            dlog(ar_dir, "no_improvement", discard_streak=state["discard_streak"],
-                 best_unchanged_count=state["best_unchanged_count"])
+            # Competitive: promote single best worker
+            if round_had_improvement and best_worker is not None:
+                promoted_exp = state["experiment_count"] + best_worker
+                print(f"\n  PROMOTED worker-{best_worker} / experiment #{promoted_exp} (score: {best_worker_score:.2f})")
+                wdir = ar_dir / "workers" / f"worker-{best_worker}"
+                promote_worker(wdir, ar_dir, state["active_branch"])
+                state["best_score"] = best_worker_score
+                state["last_promoted_experiment"] = promoted_exp
+                (ar_dir / "best_score.txt").write_text(f"{best_worker_score}\n")
+                state["discard_streak"] = 0
+                state["best_unchanged_count"] = 0
+                dlog(ar_dir, "promoted", worker=best_worker, exp=promoted_exp,
+                     new_best=best_worker_score)
+            else:
+                state["discard_streak"] += 1
+                state["best_unchanged_count"] += parallelism
+                print(f"\n  No improvement. Discard streak: {state['discard_streak']}")
+                dlog(ar_dir, "no_improvement", discard_streak=state["discard_streak"],
+                     best_unchanged_count=state["best_unchanged_count"])
 
         state["experiment_count"] += parallelism
         write_state(ar_dir, state)

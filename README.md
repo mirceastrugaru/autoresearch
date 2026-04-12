@@ -72,7 +72,10 @@ Each initiative lives in `autoresearch/<name>/` with:
 ## Metric
 {what "better" means}
 
-## Mode
+## Strategy
+{competitive or collaborative}
+
+## Measurement
 {quantitative or qualitative}
 
 ## Direction
@@ -89,28 +92,32 @@ Each initiative lives in `autoresearch/<name>/` with:
 {specific ideas to try}
 ```
 
-### Qualitative mode
+**Strategy**: `competitive` — one winner per round, best score promoted, rest discarded. Use for optimization problems. `collaborative` — every worker that passes hard gates gets merged into the baseline. Use for research and documents.
 
-For documents and research, set Mode to `qualitative` and add a Rubric section with hard and soft gates:
+**Measurement**: `quantitative` — eval script returns a number. `qualitative` — LLM judge scores against a rubric.
+
+### Qualitative measurement
+
+Set Measurement to `qualitative` and add a Rubric section:
 
 ```markdown
 ## Rubric
 
 Hard gates (fail any = score 0):
-- Correctness: no factual errors
-- Evidence: non-trivial claims must have backing
+- correctness: every claim backed by a named verifiable source
+- evidence: every non-trivial claim has a specific non-marketing source
 
-Soft gates (each pass = +1 point, max 5):
-- Technical specificity: concrete details, not generalizations
-- Comparative insight: why differences matter
-- Analytical reasoning: facts connected into arguments
-- Causal implications: cause → effect → consequence traced
-- Investigative effort: evidence of real digging, not summarizing
+Soft gates (each pass = +1 point):
+- technical_specificity: concrete details, not generalizations
+- analytical_reasoning: facts connected into arguments with conclusions
+- causal_implications: cause → effect → consequence traced
+- investigative_effort: evidence of real digging, not summarizing docs
+{add domain-specific gates as needed}
 
-Score: 0 (hard gate fail) or 0-5 (soft gate count).
+Score: 0 (hard gate fail) or 0-N (soft gate count).
 ```
 
-The LLM judge (`bin/eval_qualitative.py`) reads the rubric and scores accordingly. The judge checks presence of evidence, not authenticity — experiment agents are responsible for doing real research.
+The LLM judge (`bin/eval_qualitative.py`) reads the rubric and scores accordingly.
 
 ### eval.sh
 
