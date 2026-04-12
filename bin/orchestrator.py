@@ -100,7 +100,14 @@ async def run_agent(
     result_text = result_msg.result if result_msg and result_msg.result else ""
     cost = result_msg.total_cost_usd if result_msg else 0
     duration = result_msg.duration_ms if result_msg else 0
-    print(f"    [{name}] done ({duration}ms, ${cost:.4f})")
+    turns = result_msg.num_turns if result_msg else 0
+    usage = result_msg.usage or {}
+    input_tok = usage.get("input_tokens", 0)
+    output_tok = usage.get("output_tokens", 0)
+    cache_read = usage.get("cache_read_input_tokens", 0)
+    cache_create = usage.get("cache_creation_input_tokens", 0)
+    print(f"    [{name}] done ({duration}ms, ${cost:.4f}, {turns} turns, "
+          f"in={input_tok} out={output_tok} cache_read={cache_read} cache_create={cache_create})")
     return result_text, result_msg
 
 
@@ -322,6 +329,41 @@ def revalidate_best(ar_dir: Path, state: dict):
         print("  WARNING: drift > 2%")
 
 
+# ── Shared context builder (for prompt caching) ──────────────────────────────
+
+
+def _build_shared_context(ar_dir: Path, experiment_skill: str) -> str:
+    """Build a system prompt with shared context pre-loaded for cache efficiency.
+
+    All workers in a round receive identical system prompt content, so workers
+    2 and 3 get cache hits on the shared context instead of re-reading files.
+    Only worker-specific content (exp ID, worker dir) stays in the user prompt.
+    """
+    program = read_or(ar_dir / "program.md", "")
+    findings = read_or(ar_dir / "findings.md", "")
+    log_tail = read_log_tail(ar_dir, LOG_TAIL_SIZE)
+
+    # Best document (the current baseline workers will improve)
+    best_dir = ar_dir / "best"
+    editable_files = parse_editable_files(ar_dir)
+    best_docs = []
+    for f in editable_files:
+        p = best_dir / f
+        if p.exists():
+            best_docs.append(f"=== CURRENT BEST: {f} ===\n{p.read_text()}")
+    best_content = "\n\n".join(best_docs) if best_docs else ""
+
+    return (
+        f"{experiment_skill}\n\n"
+        f"---\n\n"
+        f"## SHARED CONTEXT (pre-loaded for all workers this round)\n\n"
+        f"### program.md\n{program}\n\n"
+        f"### findings.md\n{findings}\n\n"
+        f"### log.jsonl (last {LOG_TAIL_SIZE} entries)\n{log_tail}\n\n"
+        f"### Current best document\n{best_content}"
+    )
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
@@ -479,6 +521,12 @@ async def main():
                 f"Try inverting an assumption, or pick an idea from parking_lot.md."
             )
 
+        # Pre-load shared context for caching — same for all workers this round.
+        # Injecting into system prompt means all 3 parallel workers share a cache hit
+        # on this content instead of each reading it independently (saves ~70% input tokens
+        # on the shared context for workers 2 and 3).
+        shared_context = _build_shared_context(ar_dir, experiment_skill)
+
         # Launch parallel workers
         tasks = []
         exp_ids = []
@@ -501,17 +549,16 @@ async def main():
                 f"Current best score: {state['best_score']}\n"
                 f"Parent experiment: #{parent_exp}\n"
                 f"{guardrail_msg}\n\n"
-                f"Read {ar_dir}/program.md for research directions and editable files.\n"
-                f"Read {ar_dir}/log.jsonl (last 10 lines) for recent experiment history.\n"
-                f"Read {ar_dir}/findings.md for summary of what's been tried.\n"
-                f"Read {ar_dir}/parking_lot.md for deferred ideas (if it exists).\n\n"
+                f"Context files (program.md, findings.md, log tail, best document) are already "
+                f"provided in your system prompt above — do NOT re-read them unless you need "
+                f"content beyond what is shown. Read parking_lot.md from disk if it exists.\n\n"
                 f"CRITICAL: Write '{exp_id}' to {wdir}/experiment_id_output.txt as your LAST action."
             )
 
             print(f"  Launching worker-{i} (experiment {exp_num})...")
             tasks.append(
                 run_agent(
-                    system_prompt=experiment_skill,
+                    system_prompt=shared_context,
                     user_prompt=user_msg,
                     cwd=wdir,
                     name=f"worker-{i}",
@@ -524,10 +571,19 @@ async def main():
         elapsed = time.time() - t0
         print(f"  All workers done. ({elapsed:.1f}s)")
 
-        # Track costs
+        # Track costs and token usage
+        round_input_tokens = 0
+        round_output_tokens = 0
+        round_cache_read = 0
+        round_cache_create = 0
         for r in results:
             if not isinstance(r, Exception) and r[1] is not None:
                 total_cost += r[1].total_cost_usd or 0
+                u = r[1].usage or {}
+                round_input_tokens += u.get("input_tokens", 0)
+                round_output_tokens += u.get("output_tokens", 0)
+                round_cache_read += u.get("cache_read_input_tokens", 0)
+                round_cache_create += u.get("cache_creation_input_tokens", 0)
 
         # Collect results
         best_worker = None
@@ -616,6 +672,11 @@ async def main():
                 except (json.JSONDecodeError, OSError):
                     pass
 
+            worker_result = results[i - 1]
+            worker_usage = {}
+            if not isinstance(worker_result, Exception) and worker_result[1] is not None:
+                worker_usage = worker_result[1].usage or {}
+
             log_entry = {
                 "experiment_id": exp_num, "branch": state["active_branch"],
                 "parent": parent, "worker": i,
@@ -623,6 +684,14 @@ async def main():
                 "hypothesis": hypothesis, "diff": diff_text,
                 "score": worker_score, "best_score_at_time": state["best_score"],
                 "improved": improved,
+                "tokens": {
+                    "input": worker_usage.get("input_tokens", 0),
+                    "output": worker_usage.get("output_tokens", 0),
+                    "cache_read": worker_usage.get("cache_read_input_tokens", 0),
+                    "cache_create": worker_usage.get("cache_creation_input_tokens", 0),
+                },
+                "cost_usd": results[i - 1][1].total_cost_usd if not isinstance(results[i - 1], Exception) and results[i - 1][1] else 0,
+                "num_turns": results[i - 1][1].num_turns if not isinstance(results[i - 1], Exception) and results[i - 1][1] else 0,
             }
             if eval_scores:
                 log_entry["eval_scores"] = eval_scores
@@ -656,6 +725,8 @@ async def main():
         state["experiment_count"] += parallelism
         write_state(ar_dir, state)
         cleanup_workers(ar_dir)
+        print(f"  Round tokens: in={round_input_tokens} out={round_output_tokens} "
+              f"cache_read={round_cache_read} cache_create={round_cache_create}")
 
         # Periodic summarize
         if round_num % SUMMARIZE_EVERY == 0:
