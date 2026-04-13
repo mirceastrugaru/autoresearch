@@ -144,6 +144,52 @@ def read_direction(ar_dir: Path) -> str:
     return m.group(1).lower() if m else "maximize"
 
 
+REQUIRED_HARD_GATES = {"correctness", "evidence"}
+UNIVERSAL_SOFT_GATES = {"technical_specificity", "analytical_reasoning", "causal_implications", "investigative_effort"}
+
+
+def validate_rubric(ar_dir: Path):
+    """Enforce rubric structure: exactly the required hard gates, universal soft gates present.
+    Raises SystemExit if invalid. Only called for qualitative initiatives."""
+    text = (ar_dir / "program.md").read_text()
+    m = re.search(r"## Rubric\s*\n(.*?)(\n##|\Z)", text, re.DOTALL)
+    if not m:
+        print("ERROR: program.md has no ## Rubric section (required for qualitative measurement).")
+        sys.exit(1)
+
+    rubric = m.group(1)
+
+    # Parse hard gates
+    hard_section = re.search(r"Hard gates.*?:\s*\n(.*?)(?=\nSoft gates|\Z)", rubric, re.DOTALL)
+    if not hard_section:
+        print("ERROR: Rubric missing 'Hard gates' section.")
+        sys.exit(1)
+    hard_gates = set(re.findall(r"-\s*(\w+):", hard_section.group(1)))
+
+    extra = hard_gates - REQUIRED_HARD_GATES
+    missing = REQUIRED_HARD_GATES - hard_gates
+    if extra:
+        print(f"ERROR: Rubric contains unauthorized hard gates: {extra}")
+        print(f"  Only allowed: {REQUIRED_HARD_GATES}")
+        print(f"  Remove them from program.md and restart.")
+        sys.exit(1)
+    if missing:
+        print(f"ERROR: Rubric missing required hard gates: {missing}")
+        sys.exit(1)
+
+    # Parse soft gates — universal four must be present
+    soft_section = re.search(r"Soft gates.*?:\s*\n(.*?)(?=\nScore:|\Z)", rubric, re.DOTALL)
+    if not soft_section:
+        print("ERROR: Rubric missing 'Soft gates' section.")
+        sys.exit(1)
+    soft_gates = set(re.findall(r"-\s*(\w+):", soft_section.group(1)))
+    missing_soft = UNIVERSAL_SOFT_GATES - soft_gates
+    if missing_soft:
+        print(f"ERROR: Rubric missing universal soft gates: {missing_soft}")
+        print(f"  These must always be present: {UNIVERSAL_SOFT_GATES}")
+        sys.exit(1)
+
+
 def read_strategy(ar_dir: Path) -> str:
     """Read strategy from program.md. Returns 'competitive' or 'collaborative'.
     Backwards compat: if Strategy missing, infer from Mode."""
@@ -533,9 +579,18 @@ async def main():
         # Validate combination
         if strategy == "collaborative" and eval_mode == "quantitative":
             print("ERROR: collaborative + quantitative is not a valid combination.")
-            print("  collaborative requires qualitative measurement (LLM judge with hard gates).")
             print("  Use competitive + quantitative, or collaborative + qualitative.")
             sys.exit(1)
+
+        if strategy == "competitive" and eval_mode == "qualitative":
+            print("ERROR: competitive + qualitative is not a valid combination.")
+            print("  Quality scores have a fixed ceiling — competition stalls after round 1.")
+            print("  Use competitive + quantitative, or collaborative + qualitative.")
+            sys.exit(1)
+
+        # Validate rubric structure for qualitative initiatives
+        if eval_mode == "qualitative":
+            validate_rubric(ar_dir)
 
         print(f"Strategy: {strategy} / Measurement: {eval_mode} / Parallelism: {parallelism} / Direction: {direction}")
         print("\n--- INIT ---")

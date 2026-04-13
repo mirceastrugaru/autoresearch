@@ -13,17 +13,14 @@ The entire point of autoresearch is the iterative loop — multiple rounds of pa
 
 ## What kind of project is this?
 
-Two orthogonal decisions:
+Two valid combinations:
 
-**Strategy** — how do workers relate to each other?
-- `competitive`: one best answer exists, workers race to find it. Best score wins, rest discarded. Use for optimization problems: faster code, better accuracy, smaller binary.
-- `collaborative`: workers explore independent dimensions, all valid work accumulates. Every worker that passes hard gates gets merged into the baseline. Use for research, analysis, documents.
+- **competitive + quantitative**: workers race to maximize/minimize a number. Use for optimization problems — faster code, better accuracy, lower latency. Eval script returns a number.
+- **collaborative + qualitative**: workers explore independent dimensions, all valid work accumulates. Use for research, analysis, documents. LLM judge scores against a rubric with hard/soft gates.
 
-**Measurement** — how is quality measured?
-- `quantitative`: eval script runs the output and returns a number. Use when quality can be measured automatically (benchmarks, tests, metrics).
-- `qualitative`: LLM judge scores against a rubric. Use when quality requires judgment (documents, research, design).
+competitive + qualitative is invalid (quality ceiling → competition stalls). collaborative + quantitative is invalid (no hard gates to determine passing). Do not use either.
 
-Determine both for the human's goal before proceeding.
+Determine which combination fits the human's goal before proceeding.
 
 ## Phase 1: Understand the goal
 

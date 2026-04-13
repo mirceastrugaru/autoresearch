@@ -91,7 +91,11 @@ Each initiative lives in `autoresearch/<name>/` with:
 {specific ideas to try}
 ```
 
-**Strategy**: `competitive` — one winner per round, best score promoted, rest discarded. Use for optimization problems. `collaborative` — every worker that passes hard gates gets merged into the baseline. Use for research and documents.
+Two valid combinations:
+- **competitive + quantitative**: workers race on a number. Use for optimization problems.
+- **collaborative + qualitative**: workers accumulate findings. Use for research and documents.
+
+competitive + qualitative and collaborative + quantitative are invalid and rejected at init.
 
 **Measurement**: `quantitative` — eval script returns a number. `qualitative` — LLM judge scores against a rubric.
 
