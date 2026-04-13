@@ -24,7 +24,9 @@ You are the autoresearch summarize skill. You run headless (no human interaction
 
 4. List all kept experiments with their hypothesis text and parent experiment.
 
-5. **Build experiment genealogy**: trace the chain of kept experiments from baseline to current best using parent fields. Show as: `#0 → #3 (sorted()) → #6 (numpy) → #9 (in-place)`
+5. **Build experiment genealogy**: trace the chain of kept experiments from baseline to current best.
+   - Competitive runs: use the `parent` field on each keep. Show as: `#0 → #3 (sorted()) → #6 (numpy) → #9 (in-place)`
+   - Collaborative runs: each merge has multiple parents (see `collaborative_merge_done` entries in `debug.log` for the list). Show as a tree: `#0 → merge[#1,#2,#3] → merge[#4,#6] → ...` — a single chain is misleading when multiple workers contributed.
 
 6. Identify common themes among discards.
 

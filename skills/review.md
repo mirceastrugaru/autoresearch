@@ -60,7 +60,10 @@ When they're done inspecting, offer:
 
 "The best version of your code is in `autoresearch/<name>/best/`. Want me to copy it back into your project, replacing the original files?"
 
-If yes, copy each file from `autoresearch/<name>/best/` back to its original location (the editable files listed in `program.md`). Show what was copied.
+If yes:
+1. **First check git cleanliness** with `git status --porcelain`. If the target files have uncommitted changes, stop and warn: "Target files have uncommitted changes: {list}. Applying would overwrite them. Commit, stash, or explicitly confirm to proceed."
+2. Only proceed with explicit confirmation.
+3. Copy each file from `autoresearch/<name>/best/` back to its original location (the editable files listed in `program.md`). Show what was copied.
 
 If no, just tell them where the files are.
 
