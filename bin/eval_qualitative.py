@@ -99,6 +99,8 @@ For SOFT gates: count how many pass.
 
 Apply each gate exactly as its criterion states. If the criterion is not clearly met, it fails.
 
+Sections marked "*Investigation pending*" are intentional placeholders for vectors not yet researched by this worker. Do NOT treat them as evidence/correctness failures — the gates apply only to populated claims. A document with some populated vectors and some pending-placeholder vectors passes correctness/evidence as long as the populated claims meet the gate criteria.
+
 Respond ONLY with JSON. No preamble, no explanation outside the JSON:
 {{
   "gates": {{
