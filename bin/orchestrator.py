@@ -456,26 +456,29 @@ def assign_vectors(vectors: list[dict], parallelism: int, matrix: dict[str, list
 
     assignments = []
     used_vectors_this_round: set[str] = set()
+    used_biases_this_round: list[str] = []  # ordered; count used to spread bias
 
     for _ in range(parallelism):
         # Pick the least-covered vector not yet assigned this round (spread first)
         best_v = None
         best_b = None
-        best_score = (True, float("inf"), float("inf"), "~")  # worst possible
+        best_score = (True, float("inf"), float("inf"), float("inf"), "~")  # worst possible
 
         for v in sorted_vectors:
             # Prefer vectors not yet used this round; among those, prefer least total coverage
             already_this_round = v["id"] in used_vectors_this_round
             total_coverage = len(matrix.get(v["id"], []))
-            covered_biases = set(matrix.get(v["id"], []))
 
             # Find the best uncovered bias for this vector
             for b in biases:
                 if (v["id"], b) in {(a["vector"]["id"], a["bias"]) for a in assignments}:
                     continue  # already assigned this round
                 bias_count = sum(1 for x in matrix.get(v["id"], []) if x == b)
-                # Score: (used_this_round, total_coverage, bias_count, vector_id)
-                score = (already_this_round, total_coverage, bias_count, v["id"])
+                # Penalize biases already chosen for other workers this round so
+                # worker-1/2/3 spread across CONSERVATIVE/MODERATE/AGGRESSIVE
+                # instead of all defaulting to CONSERVATIVE on cold-start rounds.
+                round_bias_count = used_biases_this_round.count(b)
+                score = (already_this_round, total_coverage, round_bias_count, bias_count, v["id"])
                 if score < best_score:
                     best_score = score
                     best_v = v
@@ -484,6 +487,7 @@ def assign_vectors(vectors: list[dict], parallelism: int, matrix: dict[str, list
         if best_v and best_b:
             assignments.append({"vector": best_v, "bias": best_b})
             used_vectors_this_round.add(best_v["id"])
+            used_biases_this_round.append(best_b)
         else:
             # Fallback: wrap around
             idx = len(assignments)
