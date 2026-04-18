@@ -13,13 +13,17 @@ The entire point of autoresearch is the iterative loop — multiple rounds of pa
 
 ## What kind of project is this?
 
-Autoresearch handles two kinds of work:
+Two orthogonal decisions:
 
-**Code optimization (quantitative)**: Agents edit source code, run an eval script that produces a number, and the orchestrator promotes improvements. Examples: faster sort, better accuracy, smaller binary.
+**Strategy** — how do workers relate to each other?
+- `competitive`: one best answer exists, workers race to find it. Best score wins, rest discarded. Use for optimization problems: faster code, better accuracy, smaller binary.
+- `collaborative`: workers explore independent dimensions, all valid work accumulates. Every worker that passes hard gates gets merged into the baseline. Use for research, analysis, documents.
 
-**Document/research (qualitative)**: Agents edit a document (markdown, text, etc.), an LLM judge scores it against a rubric, and the orchestrator promotes improvements. Examples: competitive analysis, technical report, research summary, prompt optimization.
+**Measurement** — how is quality measured?
+- `quantitative`: eval script runs the output and returns a number. Use when quality can be measured automatically (benchmarks, tests, metrics).
+- `qualitative`: LLM judge scores against a rubric. Use when quality requires judgment (documents, research, design).
 
-Both use the same orchestrator loop. The difference is how scoring works. Determine which mode fits the human's goal and proceed accordingly.
+Determine both for the human's goal before proceeding.
 
 ## Phase 1: Understand the goal
 
@@ -69,7 +73,10 @@ Each initiative gets its own directory under `autoresearch/`. Create `autoresear
 ## Metric
 {what "better" means and how we measure it}
 
-## Mode
+## Strategy
+{competitive or collaborative}
+
+## Measurement
 {quantitative or qualitative}
 
 ## Direction
@@ -86,26 +93,28 @@ Each initiative gets its own directory under `autoresearch/`. Create `autoresear
 {research directions — specific, actionable ideas}
 ```
 
-**For qualitative mode, add a `## Rubric` section with hard and soft gates:**
+**For qualitative measurement, add a `## Rubric` section with hard and soft gates:**
 
 ```markdown
 ## Rubric
 
 Hard gates (fail any = score 0):
-- Correctness: no factual errors
-- Evidence: non-trivial claims must have backing (citations, references, data)
+- correctness: no factual errors — every specific claim backed by a named, plausible, verifiable source
+- evidence: every non-trivial claim has a specific, named, non-marketing source
 
 Soft gates (each pass = +1 point):
-- Technical specificity: concrete details (versions, APIs, measurements), not generalizations
-- Comparative insight: explains why a difference matters, not just that it exists
-- Analytical reasoning: connects facts into arguments, derives conclusions
-- Causal implications: traces cause → effect → consequence
-- Investigative effort: evidence of digging (source code, commits, configs) not just summarizing docs
+- technical_specificity: concrete details (numbers, versions, measurements), not generalizations
+- analytical_reasoning: connects facts into arguments with stated conclusions
+- causal_implications: traces cause → effect → consequence with evidence
+- investigative_effort: evidence of real digging (source code, commits, APIs, configs) not just summarizing docs pages
+{add domain-specific soft gates here based on the initiative's goal}
 
-Score: 0 (hard gate fail) or 0-5 (soft gate count).
+Score: 0 (hard gate fail) or 0-N (soft gate count).
 ```
 
-Adapt the gate names and descriptions to the specific project. The hard/soft structure and scoring logic must be preserved — the eval script depends on it.
+The four universal soft gates (technical_specificity, analytical_reasoning, causal_implications, investigative_effort) must always be present. Add domain-specific gates on top using judgment — for example: comparative_insight when comparing options, trend_analysis when temporal change matters. Do not use a fixed list; pick what fits the specific goal.
+
+The hard/soft structure and gate names must be preserved as-is — the eval script depends on parsing them.
 
 ### autoresearch/<name>/eval.sh
 

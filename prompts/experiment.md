@@ -25,6 +25,8 @@ Provided in user prompt: experiment ID, worker dir, autoresearch dir, eval comma
 
 You are scored against the rubric in program.md. Read it. Understand the gates. Fail a hard gate → your work is discarded regardless of other quality. The judge is an LLM with web search — it will verify claims.
 
+In collaborative mode: you do not need to beat the current best score. You need to pass hard gates. Any work that passes hard gates is valid and will be merged into the baseline.
+
 ## qualitative mode
 
 If program.md mode=qualitative: you improve a document, not code. Use web search to find real data, read source code, verify claims. Each experiment = one focused improvement. Don't rewrite everything.
