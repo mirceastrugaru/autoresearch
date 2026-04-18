@@ -33,7 +33,7 @@ Listen to the answer. Then figure out the project type:
 
 After your analysis, present a **complete research plan** in one message:
 
-- A short name for this initiative (slug format, e.g. `sort-optimization`, `qt-competitive-analysis`)
+- A short name for this initiative (slug format, e.g. `sort-optimization`, `api-latency`)
 - Here's what I think we're optimizing
 - Here's how I'll measure it (eval script for code / rubric criteria for documents)
 - Here are the files the agents will edit

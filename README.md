@@ -132,8 +132,8 @@ Files agents must not edit, one per line.
 ## Environment variables
 
 - `ANTHROPIC_API_KEY` — required
-- `AUTORESEARCH_MODEL` — model for experiment agents (default: `claude-sonnet-4-5-20250929`)
-- `AUTORESEARCH_JUDGE_MODEL` — model for qualitative judge (default: `claude-sonnet-4-5-20250929`)
+- `AUTORESEARCH_MODEL` — model for experiment agents (default: `claude-sonnet-4-6`)
+- `AUTORESEARCH_JUDGE_MODEL` — model for qualitative judge (default: `claude-sonnet-4-6`)
 
 ## License
 
