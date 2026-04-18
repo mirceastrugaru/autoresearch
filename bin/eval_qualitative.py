@@ -34,18 +34,16 @@ JUDGE_MODEL = os.environ.get("AUTORESEARCH_JUDGE_MODEL", "claude-sonnet-4-6")
 
 async def run_judge(prompt: str) -> str:
     result_text = ""
-    opts = ClaudeAgentOptions(
+    kwargs = dict(
         system_prompt="You are a strict evaluator. Respond ONLY with JSON. No other text.",
         permission_mode="bypassPermissions",
         max_turns=None,
         extra_args={"no-session-persistence": None},
     )
     if JUDGE_MODEL:
-        opts.model = JUDGE_MODEL
-    async for msg in query(
-        prompt=prompt,
-        options=opts,
-    ):
+        kwargs["model"] = JUDGE_MODEL
+    opts = ClaudeAgentOptions(**kwargs)
+    async for msg in query(prompt=prompt, options=opts):
         if isinstance(msg, ResultMessage):
             result_text = msg.result or ""
     return result_text
@@ -114,18 +112,35 @@ Respond ONLY with JSON. No preamble, no explanation outside the JSON:
 If any hard gate failed, final_score MUST be 0.
 Otherwise final_score = number of soft gates with result=pass."""
 
-    response = asyncio.run(run_judge(prompt))
-
-    try:
-        # Strip markdown code blocks if present
+    def _parse(response: str) -> dict:
         text = response.strip()
         if text.startswith("```"):
             text = re.sub(r"^```\w*\n?", "", text)
             text = re.sub(r"\n?```$", "", text)
+        return json.loads(text)
 
-        result = json.loads(text)
+    # Try once, retry once on JSON parse failure with a sharper prompt.
+    result = None
+    last_err = None
+    last_text = ""
+    for attempt in (1, 2):
+        response = asyncio.run(run_judge(prompt if attempt == 1 else prompt + "\n\nYour previous response was not valid JSON. Respond with ONLY the JSON object — no markdown fences, no prose."))
+        last_text = response
+        try:
+            result = _parse(response)
+            break
+        except json.JSONDecodeError as e:
+            last_err = e
+            continue
 
-        # Enforce hard gate logic ourselves
+    if result is None:
+        print(f"ERROR: JSON parse failed after retry: {last_err}", file=sys.stderr)
+        print(f"Last response: {last_text[:500]}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        # Re-derive final_score and hard_gate_failed from the gates —
+        # don't trust what the LLM claimed. Overwrite to keep JSON consistent.
         hard_failed = False
         soft_passed = 0
         for gate_name, gate in result.get("gates", {}).items():
@@ -143,10 +158,6 @@ Otherwise final_score = number of soft gates with result=pass."""
 
         print(final_score)
 
-    except json.JSONDecodeError as e:
-        print(f"ERROR: JSON parse failed: {e}", file=sys.stderr)
-        print(f"Response: {text[:500]}", file=sys.stderr)
-        sys.exit(1)
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)

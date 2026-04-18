@@ -13,22 +13,22 @@ The entire point of autoresearch is the iterative loop — multiple rounds of pa
 
 ## What kind of project is this?
 
-Two valid combinations:
+Two default combinations (use unless the goal strongly suggests otherwise):
 
-- **competitive + quantitative**: workers race to maximize/minimize a number. Use for optimization problems — faster code, better accuracy, lower latency. Eval script returns a number.
-- **collaborative + qualitative**: workers explore independent dimensions, all valid work accumulates. Use for research, analysis, documents. LLM judge scores against a rubric with hard/soft gates.
+- **competitive + quantitative**: workers race to maximize/minimize a number. Default for optimization problems — faster code, better accuracy, lower latency. Eval script returns a number.
+- **collaborative + qualitative**: workers explore independent dimensions, all valid work accumulates. Default for research, analysis, documents. LLM judge scores against a rubric with hard/soft gates.
 
-competitive + qualitative is invalid (quality ceiling → competition stalls). collaborative + quantitative is invalid (no hard gates to determine passing). Do not use either.
+The orchestrator warns (but does not forbid) unusual combinations: competitive + qualitative tends to plateau because quality scores have a ceiling; collaborative + quantitative loses information when merging numeric results. Use the defaults unless you have a specific reason.
 
-Determine which combination fits the human's goal before proceeding.
+Determine which combination fits the user's goal before proceeding.
 
 ## Phase 1: Understand the goal
 
-**FIRST ACTION: Ask "What's your research goal?" — do this before reading any files, before any analysis, before anything else.**
+Start with the goal. If the user's request is clear (e.g. "optimize this sort function," "research the embedded UI landscape"), proceed directly. If ambiguous, ask one concise clarifying question — not a checklist.
 
-Any goal is valid. Figure out the project type:
+Any goal is valid: code optimization, document writing, market research, argument development, personal decisions. Do not redirect the user based on goal type.
 
-**If the goal involves code**: Read the codebase — understand the structure, find what's relevant, look for existing tests and benchmarks.
+**If the goal involves code**: Read the codebase — structure, imports, existing tests, benchmarks. You can't design a meaningful experiment on code you haven't looked at.
 
 **For everything else**: Determine what the output document should contain, what "better" means for it, and what sources/approaches the agents should use.
 

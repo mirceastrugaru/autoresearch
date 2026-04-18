@@ -91,11 +91,11 @@ Each initiative lives in `autoresearch/<name>/` with:
 {specific ideas to try}
 ```
 
-Two valid combinations:
-- **competitive + quantitative**: workers race on a number. Use for optimization problems.
-- **collaborative + qualitative**: workers accumulate findings. Use for research and documents.
+Two default combinations:
+- **competitive + quantitative**: workers race on a number. Default for optimization problems.
+- **collaborative + qualitative**: workers accumulate findings. Default for research and documents.
 
-competitive + qualitative and collaborative + quantitative are invalid and rejected at init.
+The orchestrator warns on unusual combinations (competitive + qualitative tends to plateau; collaborative + quantitative loses information when merging) but does not forbid them.
 
 **Measurement**: `quantitative` — eval script returns a number. `qualitative` — LLM judge scores against a rubric.
 
@@ -143,6 +143,7 @@ Files agents must not edit, one per line.
 
 - `AUTORESEARCH_MODEL` — model for experiment agents (default: `claude-sonnet-4-6`)
 - `AUTORESEARCH_JUDGE_MODEL` — model for qualitative judge (default: `claude-sonnet-4-6`)
+- `AUTORESEARCH_WORKER_TIMEOUT` — per-worker hard timeout in seconds (default: `900`)
 
 ## License
 
