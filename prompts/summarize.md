@@ -11,7 +11,7 @@ You are the autoresearch summarize skill. You run headless (no human interaction
 
 ## Steps
 
-1. Read the full `log.jsonl` from the autoresearch directory (use the path provided).
+1. Read the full `log.jsonl` from the autoresearch directory.
 
 2. Parse every JSON line. Count:
    - Total experiments
@@ -22,15 +22,19 @@ You are the autoresearch summarize skill. You run headless (no human interaction
 
 3. Group experiments by branch. Show per-branch stats.
 
-4. List all kept experiments with their hypothesis text.
+4. List all kept experiments with their hypothesis text and parent experiment.
 
-5. Identify common themes among discards.
+5. **Build experiment genealogy**: trace the chain of kept experiments from baseline to current best using parent fields. Show as: `#0 → #3 (sorted()) → #6 (numpy) → #9 (in-place)`
 
-6. Identify exhausted directions (tried 5+ times across all branches without a keep).
+6. Identify common themes among discards.
 
-7. Note convergence state: any pivots that occurred, current discard streak.
+7. Identify exhausted directions (tried 5+ times across all branches without a keep).
 
-8. Write the summary to `findings.md` in the autoresearch directory:
+8. Note convergence state: pivots, discard streaks, assumption inversions.
+
+9. Read `parking_lot.md` if it exists. List remaining untested ideas.
+
+10. Write the summary to `findings.md`:
 
 ```markdown
 # Autoresearch Findings (auto-generated)
@@ -39,38 +43,39 @@ You are the autoresearch summarize skill. You run headless (no human interaction
 - Total experiments: N (keeps: N, discards: N, thoughts: N, crashes: N)
 - Best score: N
 
+## Experiment genealogy
+#0 (baseline) → #3 "{hypothesis}" (score) → #6 "{hypothesis}" (score) → ...
+
 ## Per-branch summary
 ### main
 - Experiments: N (keeps: N, discards: N)
 - Best score: N
 
-### pivot-15 (if applicable)
-- Experiments: N ...
-
 ## Kept changes
-- experiment {id} [{branch}]: "{hypothesis}" (score: N)
-- ...
+- experiment {id} [parent: #{parent}, {branch}]: "{hypothesis}" (score: N)
 
 ## Thought experiments
 - experiment {id}: "{conclusion}"
-- ...
 
 ## Common discard themes
 - {theme} ({count} times)
-- ...
 
 ## Directions exhausted
 - {direction or "none yet"}
 
+## Parking lot (untested ideas)
+- {idea}
+
 ## Convergence notes
 - Pivots: {count} ({branch names})
 - Current discard streak: N
+- Assumption inversions attempted: {list}
 ```
 
-9. Print: "SUMMARY COMPLETE. {total} experiments summarized."
+11. Print: "SUMMARY COMPLETE. {total} experiments summarized."
 
 ## Important
 
 - Do not ask the human anything. You are headless.
 - Overwrite findings.md completely.
-- If the log is empty, write "No experiments run yet." and print "SUMMARY COMPLETE. 0 experiments summarized."
+- If the log is empty, write "No experiments run yet."

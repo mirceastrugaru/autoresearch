@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "round": 3,
+  "experiment_count": 9,
+  "best_score": 130875662.89,
+  "active_branch": "main",
+  "discard_streak": 0,
+  "best_unchanged_count": 0,
+  "last_pivot_experiment": 0,
+  "eval_mode": "quantitative",
+  "parallelism": 3,
+  "direction": "maximize"
+}

@@ -43,7 +43,9 @@ First, check if `state.json` exists in the autoresearch directory.
 
 10. Create `findings.md` with content "# Autoresearch Findings\n\nNo experiments run yet."
 
-11. Write `state.json`:
+11. Create `parking_lot.md` with content "# Parking Lot\n\nDeferred ideas for future experiments.\n"
+
+12. Write `state.json`:
     ```json
     {
       "version": 1,
@@ -52,6 +54,7 @@ First, check if `state.json` exists in the autoresearch directory.
       "best_score": <baseline>,
       "active_branch": "main",
       "discard_streak": 0,
+      "last_promoted_experiment": 0,
       "best_unchanged_count": 0,
       "last_pivot_experiment": 0,
       "eval_mode": "<quantitative|qualitative>",
@@ -59,7 +62,7 @@ First, check if `state.json` exists in the autoresearch directory.
     }
     ```
 
-12. Print: "INIT COMPLETE. Baseline score: {score}"
+13. Print: "INIT COMPLETE. Baseline score: {score}"
 
 ## Important
 
