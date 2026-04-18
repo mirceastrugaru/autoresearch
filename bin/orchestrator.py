@@ -42,7 +42,7 @@ def preflight():
 
     # Prompt templates
     prompts_dir = Path(__file__).parent.parent / "prompts"
-    for name in ("init.md", "supportive.md", "adversarial.md", "summarize.md", "merge.md"):
+    for name in ("supportive.md", "adversarial.md", "merge.md"):
         if not (prompts_dir / name).exists():
             errors.append(f"Missing prompt template: {prompts_dir / name}")
 
@@ -711,10 +711,8 @@ async def main():
 
     # Load skill texts
     prompts_dir = Path(__file__).parent.parent / "prompts"
-    init_skill = (prompts_dir / "init.md").read_text()
     supportive_skill = (prompts_dir / "supportive.md").read_text()
     adversarial_skill = (prompts_dir / "adversarial.md").read_text()
-    summarize_skill = (prompts_dir / "summarize.md").read_text()
     merge_skill = (prompts_dir / "merge.md").read_text()
 
     print("=== AUTORESEARCH ORCHESTRATOR ===")
@@ -760,25 +758,9 @@ async def main():
         print(f"Strategy: {strategy} / Measurement: {eval_mode} / Parallelism: {parallelism} / Direction: {direction}")
         print("\n--- INIT ---")
 
-        # Ensure traces dir exists and capture init's full turn stream.
-        (ar_dir / "traces").mkdir(parents=True, exist_ok=True)
-        init_trace = ar_dir / "traces" / "init.jsonl"
-
-        output, _ = await run_agent(
-            system_prompt=init_skill,
-            user_prompt=(
-                f"Initialize the autoresearch project.\n"
-                f"Project directory: {project_dir}\n"
-                f"Autoresearch directory: {ar_dir}\n"
-                f"Eval mode: {eval_mode}\n"
-                f"Parallelism: {parallelism}"
-            ),
-            cwd=project_dir,
-            name="init",
-            trace_path=init_trace,
-        )
-        print(output)
-        dlog(ar_dir, "init_output", output=output, trace_path=str(init_trace))
+        from bin.init import init_project
+        output = init_project(project_dir, ar_dir, eval_mode, parallelism)
+        dlog(ar_dir, "init_output", output=output)
 
         if not state_file.exists():
             print("INIT FAILED: state.json not created. Aborting.")
@@ -1463,21 +1445,9 @@ async def main():
         is_budget_last = max_cost is not None and total_cost >= max_cost
         if round_num % SUMMARIZE_EVERY == 0 or is_last_round or is_budget_last:
             print(f"\n--- SUMMARIZE (round {round_num}) ---")
-            full_log = read_full_log(ar_dir)
-            findings = read_or(ar_dir / "findings.md", "none")
-            branches_text = read_or(ar_dir / "branches.jsonl", "none")
             t_sum = time.time()
-            output, _ = await run_agent(
-                system_prompt=summarize_skill,
-                user_prompt=(
-                    f"Summarize the experiment log. Autoresearch directory: {ar_dir}\n"
-                    f"Full log: {full_log}\n"
-                    f"Existing findings: {findings}\n"
-                    f"Branch registry: {branches_text}"
-                ),
-                cwd=project_dir,
-                name="summarize",
-            )
+            from bin.summarize import summarize
+            output = summarize(ar_dir)
             round_timing["summarize_ms"] = int((time.time() - t_sum) * 1000)
             print(output)
 
@@ -1494,7 +1464,7 @@ async def main():
     from bin.verdict import generate_verdict
     try:
         verdict = generate_verdict(ar_dir)
-        print(f"\n--- VERDICT: {verdict['headline']} (pro={verdict['tension']['pro']}%, con={verdict['tension']['con']}%) ---")
+        print(f"\n--- VERDICT: {verdict['headline']} (supportive={verdict['tension']['supportive']}%, adversarial={verdict['tension']['adversarial']}%) ---")
     except Exception as e:
         print(f"\n  Warning: verdict generation failed: {e}")
 

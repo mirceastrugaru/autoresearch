@@ -16,20 +16,20 @@ def generate_verdict(ar_dir: Path) -> dict:
     if not entries:
         return _empty_verdict(ar_dir)
 
-    pro_scores = [e["score"] for e in entries if e.get("stance") == "pro" and e.get("score")]
-    con_scores = [e["score"] for e in entries if e.get("stance") == "con" and e.get("score")]
-    total_pro = sum(pro_scores) if pro_scores else 0
-    total_con = sum(con_scores) if con_scores else 0
-    total = total_pro + total_con or 1
-    pro_pct = int(round(total_pro / total * 100))
-    con_pct = 100 - pro_pct
+    supportive_scores = [e["score"] for e in entries if e.get("stance") == "supportive" and e.get("score")]
+    adversarial_scores = [e["score"] for e in entries if e.get("stance") == "adversarial" and e.get("score")]
+    total_supportive = sum(supportive_scores) if supportive_scores else 0
+    total_adversarial = sum(adversarial_scores) if adversarial_scores else 0
+    total = total_supportive + total_adversarial or 1
+    supportive_pct = int(round(total_supportive / total * 100))
+    adversarial_pct = 100 - supportive_pct
 
-    if abs(pro_pct - con_pct) < 10:
-        leaning = "split"
-    elif pro_pct > con_pct:
-        leaning = "pro"
+    if abs(supportive_pct - adversarial_pct) < 10:
+        leaning = "balanced"
+    elif supportive_pct > adversarial_pct:
+        leaning = "supportive"
     else:
-        leaning = "con"
+        leaning = "adversarial"
 
     all_scores = [e["score"] for e in entries if e.get("score") is not None]
     avg_score = sum(all_scores) / len(all_scores) if all_scores else 0
@@ -47,23 +47,23 @@ def generate_verdict(ar_dir: Path) -> dict:
     num_rounds = len(rounds_seen) if rounds_seen else 1
 
     findings = _extract_findings(ar_dir, entries)
-    pro_args = _extract_arguments(entries, "pro")
-    con_args = _extract_arguments(entries, "con")
+    supportive_args = _extract_arguments(entries, "supportive")
+    adversarial_args = _extract_arguments(entries, "adversarial")
     next_actions = _extract_next_actions(ar_dir)
 
-    if leaning == "split":
-        headline = "Split — evidence is balanced."
-        subtitle = "Both sides presented compelling evidence."
-    elif leaning == "pro":
-        headline = "Lean pro — with caveats."
-        subtitle = "Evidence tilts toward supporting the thesis."
+    if leaning == "balanced":
+        headline = "Balanced — evidence on both sides."
+        subtitle = "Supportive and adversarial evidence are comparable."
+    elif leaning == "supportive":
+        headline = "Leans supportive — with caveats."
+        subtitle = "Evidence tilts toward the directions investigated."
     else:
-        headline = "Lean con — with caveats."
-        subtitle = "Evidence tilts against the thesis."
+        headline = "Leans adversarial — with caveats."
+        subtitle = "Evidence challenges the directions investigated."
 
     verdict = {
         "leaning": leaning,
-        "tension": {"pro": pro_pct, "con": con_pct},
+        "tension": {"supportive": supportive_pct, "adversarial": adversarial_pct},
         "headline": headline,
         "subtitle": subtitle,
         "stats": {
@@ -73,7 +73,7 @@ def generate_verdict(ar_dir: Path) -> dict:
             "cost": round(total_cost, 2),
         },
         "findings": findings,
-        "arguments": {"pro": pro_args, "con": con_args},
+        "arguments": {"supportive": supportive_args, "adversarial": adversarial_args},
         "nextActions": next_actions,
     }
 
@@ -84,13 +84,13 @@ def generate_verdict(ar_dir: Path) -> dict:
 
 def _empty_verdict(ar_dir: Path) -> dict:
     return {
-        "leaning": "split",
-        "tension": {"pro": 50, "con": 50},
+        "leaning": "balanced",
+        "tension": {"supportive": 50, "adversarial": 50},
         "headline": "No experiments run yet.",
         "subtitle": "",
         "stats": {"writeups": 0, "avgScore": 0, "rounds": 0, "cost": 0},
         "findings": [],
-        "arguments": {"pro": [], "con": []},
+        "arguments": {"supportive": [], "adversarial": []},
         "nextActions": [],
     }
 
@@ -100,9 +100,8 @@ def _strip_md(text: str) -> str:
     text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
     text = re.sub(r'\*([^*]+)\*', r'\1', text)
     text = re.sub(r'`([^`]+)`', r'\1', text)
-    text = re.sub(r'^(Prove|Disprove|HYPOTHESIS):\s*', '', text.strip())
+    text = re.sub(r'^HYPOTHESIS:\s*', '', text.strip())
     text = re.sub(r'^\[FLAGGED FOR REVIEW\]\s*', '', text.strip())
-    text = re.sub(r'^(Prove|Disprove) that\s+', '', text.strip(), flags=re.IGNORECASE)
     return text.strip()
 
 
