@@ -61,19 +61,19 @@ The system is a three-layer loop:
    - Discovers initiatives under `<project>/autoresearch/<name>/` (program.md presence = initiative).
    - Reads **strategy** (`competitive` | `collaborative`) and **measurement** (`quantitative` | `qualitative`) from `program.md`. Warns but doesn't block on unusual combinations.
    - Each round: spawns N parallel workers via `run_agent()` → `claude_agent_sdk.query` with `permission_mode="bypassPermissions"`. Shared context (`_build_shared_context`) goes into every worker's system prompt so all N workers get cache hits on the same bytes.
-   - Workers have a **stance** (pro or con). Parallelism must be even (minimum 2): first half pro, second half con. Each worker is assigned a direction from `roadmap.md` via `parse_roadmap` + `assign_directions`, using a coverage matrix from `log.jsonl` to prioritize least-covered directions.
+   - Workers have a **stance** (supportive or adversarial). Parallelism must be even (minimum 2): first half supportive, second half adversarial. Each worker is assigned a direction from `roadmap.md` via `parse_roadmap` + `assign_directions`, using a coverage matrix from `log.jsonl` to prioritize least-covered directions. Supportive workers collect evidence consistent with the direction; adversarial workers collect evidence inconsistent with it.
    - After workers finish: **quantitative** mode computes authoritative diffs from filesystem snapshots, runs `eval.sh`, promotes best (competitive) or merges via merge agent (collaborative). **Qualitative collaborative** mode collects all write-ups and calls the judge (`bin/eval_qualitative.py --judge`) which scores write-ups, synthesizes the next main document, and curates the roadmap — all in one call.
    - Convergence logic: `DISCARD_STREAK_WARN=3` adds guardrail message, `DISCARD_STREAK_PIVOT=5` forces `force_pivot` (new branch), `PLATEAU_THRESHOLD=8` unchanged-best-count forces pivot, `REVALIDATE_EVERY=10` re-runs eval on current best to detect noise.
    - Timeouts: `AUTORESEARCH_WORKER_TIMEOUT` (default 900s per worker), `AUTORESEARCH_MERGE_TIMEOUT` (300s). Hard-enforced via `asyncio.wait_for`.
    - Everything is traced: `message_to_trace_events` serializes every SDK message (AssistantMessage / UserMessage / ToolUseBlock / ToolResultBlock / ResultMessage) to per-experiment `traces/<exp_id>.jsonl` with bounded sizes (`TRACE_TOOL_RESULT_CAP=4000`, `TRACE_MESSAGE_HARD_CEILING=50000`). Traces survive crashes — line-buffered writes.
 
-3. **Workers** — Claude Agent SDK instances following `prompts/pro.md` (prove stance) or `prompts/con.md` (disprove stance). Headless, one direction per invocation. Produce `hypothesis.txt`, `writeup.md`, `roadmap_append.md` (optional), `score.txt` (quantitative only), `summary.txt`, `status.txt`, and (last, mandatory) `experiment_id_output.txt`. Missing the final file = instruction-violation = discard.
+3. **Workers** — Claude Agent SDK instances following `prompts/supportive.md` (supportive stance) or `prompts/adversarial.md` (adversarial stance). Headless, one direction per invocation. Produce `hypothesis.txt`, `writeup.md`, `roadmap_append.md` (mandatory — drives direction discovery), `score.txt` (quantitative only), `summary.txt`, `status.txt`, and (last, mandatory) `experiment_id_output.txt`. Missing the final file = instruction-violation = discard.
 
 ## Initiative layout
 
 Each initiative lives at `<project>/autoresearch/<name>/`:
 
-- `program.md` — required. Parsed sections: `## Target`, `## Metric`, `## Strategy`, `## Measurement`, `## Direction`, `## Parallelism`, `## Editable files`, `## Directions to prove`, `## Directions to disprove`, and (qualitative only) `## Rubric`.
+- `program.md` — required. Parsed sections: `## Target`, `## Metric`, `## Strategy`, `## Measurement`, `## Direction`, `## Parallelism`, `## Editable files`, `## Directions`, and (qualitative only) `## Rubric`.
 - `eval.sh` — required executable. Quantitative: prints one number. Qualitative: shells to `bin/eval_qualitative.py`.
 - `lockfile.txt` — files workers must not edit. The orchestrator also auto-rejects writes to `eval.sh`, `program.md`, `state.json`, `log.jsonl`, `branches.jsonl`, `best_score.txt`, `lockfile.txt`.
 - State produced by the loop: `state.json`, `log.jsonl` (every experiment), `branches.jsonl`, `best_score.txt`, `best/`, `branches/<branch>/`, `workers/worker-<i>/`, `traces/`, `prompts/<exp_id>.txt`, `findings.md`, `roadmap.md`.

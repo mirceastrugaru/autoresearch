@@ -190,7 +190,7 @@ def judge_mode(ar_dir: Path, writeups_json: str, roadmap_proposals: str):
     if roadmap_path.exists():
         roadmap = roadmap_path.read_text()
 
-    prompt = f"""You are the judge for an autoresearch project. You have three jobs in this response.
+    prompt = f"""You are the judge for an autoresearch project. You have four jobs. Job 3 (roadmap curation) is the most important — the quality of the roadmap determines what gets investigated next.
 
 TARGET: {target}
 
@@ -211,38 +211,39 @@ WORKER ROADMAP PROPOSALS:
 
 ---
 
-You must respond with a single JSON object containing three sections:
+Respond with a single JSON object containing four sections.
 
 ### Job 1: Score each write-up
 Apply the rubric to each write-up. Hard gate fail = score 0. Soft gates: count passes.
 
 ### Job 2: Synthesize the next main document
-Read all pro write-ups (evidence for) and con write-ups (evidence against). Produce the next version of the main document that:
-- Incorporates new pro evidence into the appropriate sections.
-- Addresses con evidence — either refuting it with counter-evidence, acknowledging it as a limitation, or revising the document's claims.
-- Does not suppress evidence from either side.
+Read all supportive write-ups (evidence consistent with directions) and adversarial write-ups (evidence inconsistent). Produce the next version of the main document that:
+- Incorporates consistent evidence into the appropriate sections.
+- Addresses inconsistent evidence — either with counter-evidence, acknowledging it as a limitation, or revising claims.
+- Does not suppress evidence from either stance.
 - Maintains all existing content that wasn't contradicted.
-- ONLY includes sections with actual evidence. Do NOT include placeholder sections for uninvestigated topics — those belong in the meta document.
-- The main document should read as a complete, polished analysis of whatever has been investigated so far.
-- Each worker's contribution should be synthesized into at most 150 words. State the claim, the strongest evidence, and the source. Cut exposition, examples, and code blocks unless the code IS the evidence. 50 words is better than 150 if the point is clear.
+- ONLY includes sections with actual evidence. No placeholder sections — those belong in the meta document.
+- Each worker's contribution: at most 150 words. State the finding, the strongest evidence, and the source. 50 words is better than 150 if the point is clear.
 One editable file per entry in the editable files list EXCEPT the meta document (see Job 4).
 
 ### Job 3: Curate the roadmap
-Read worker proposals. Merge them with the existing roadmap:
-- Drop duplicates of existing entries.
-- Drop directions already thoroughly covered (check the write-ups — if a direction has been deeply researched, it's done).
-- Add promising new directions from proposals.
-- Reorder by priority (most important / least covered first).
-- If uncertain about a proposal, add it with a "[FLAGGED FOR REVIEW]" prefix.
+This is your most important job. The roadmap drives what gets investigated next. Do it well.
+
+Read worker proposals. For each proposal, evaluate:
+1. **Is it specific enough to assign?** A worker receiving this direction must know exactly what to investigate and what evidence to look for. "Investigate X" is not assignable. "Investigate X by checking Y and Z — if true, it means W" is.
+2. **Is it already covered?** Check both the existing roadmap and this round's write-ups. If a direction has been deeply researched, mark it done — don't keep it.
+3. **Does it matter?** Would confirming or disconfirming this direction change the analysis? If not, drop it.
+
+Then produce the updated roadmap:
+- Drop duplicates and covered directions.
+- Add proposals that pass the three checks above.
+- Reorder by impact (directions that would most change the analysis first).
+- If a proposal is promising but too vague, rewrite it to be specific before adding.
+- If uncertain, add with "[FLAGGED FOR REVIEW]" prefix.
+- Format as a flat numbered list under `## Directions`.
 
 ### Job 4: Update the meta document
-Produce a meta document that tracks the research process itself. It must contain:
-- **Strategy**: what directions have been assigned so far, coverage state, what's left.
-- **Round log**: for this round and all prior rounds, record which workers ran, their stance, assigned direction, score, one-line key finding, and whether they passed/failed hard gates.
-- **Remaining directions**: what's still uninvestigated from the roadmap.
-- **Failures**: what was discarded and why (hard gate failures, missing evidence, etc.).
-- **Cost**: cumulative cost if available.
-The meta document goes into the "meta" key in the JSON output. It should be written as markdown.
+Track the research process: directions assigned, coverage, round log (workers, stance, direction, score, key finding, hard gate pass/fail), remaining directions, failures, cost.
 
 Respond ONLY with JSON:
 {{

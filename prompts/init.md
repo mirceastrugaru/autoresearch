@@ -16,28 +16,25 @@ Use absolute paths for all file operations. Paths below are relative to AR_DIR.
 
 1. Read `program.md`. Missing → print `INIT FAILED: program.md not found` and stop.
 2. If quantitative mode: read `eval.sh`. Missing → print `INIT FAILED: eval.sh not found` and stop. Make it executable (`chmod +x`) if it isn't.
-3. Extract target, directions to prove, directions to disprove, and editable files from program.md.
+3. Extract target, directions, and editable files from program.md.
 4. Scaffold `best/` and `branches/main/`:
    - Editable files are listed at their full project-relative paths (e.g. `autoresearch/foo/bar.md`).
    - For each editable file, write it to `best/<that path>` and `branches/main/<that path>`.
    - If the file already exists in the project: copy it.
-   - If it doesn't exist: **create a substantive baseline**. For qualitative/document projects, write at minimum 500 words with an outline structured around the prove directions. Don't leave files empty or trivial.
+   - If it doesn't exist: **create a substantive baseline**. For qualitative/document projects, write at minimum 500 words with an outline structured around the directions. Don't leave files empty or trivial.
    - **Placeholder framing (qualitative only):** Under each section heading, insert the literal line `*Investigation pending — no findings yet; this section will be populated by research rounds.*`. This tells the judge the section is deliberately empty at baseline.
 5. Validate the baseline. Quantitative: run `bash AR_DIR/eval.sh AR_DIR/best/`. Take the last numeric line of stdout as the score. If no numeric line, print `INIT FAILED: eval.sh did not produce a number` and stop. Qualitative: baseline = 0.
 6. Write the score to `best_score.txt`.
 7. Create empty `log.jsonl`.
 8. Create `findings.md` with exactly: `# Findings\n\nNo experiments yet.\n`.
-9. Create `roadmap.md` seeded from program.md. Parse `## Directions to prove` and `## Directions to disprove`. Write each entry with its stance and priority (order from program.md = priority, first = highest). Format:
+9. Create `roadmap.md` seeded from program.md. Parse `## Directions`. Write each entry with its priority (order from program.md = priority, first = highest). Format:
    ```markdown
    # Roadmap
 
-   ## Prove
+   ## Directions
    1. [direction title] — [rationale from program.md]
    2. [direction title] — [rationale]
-
-   ## Disprove
-   1. [direction title] — [rationale from program.md]
-   2. [direction title] — [rationale]
+   3. [direction title] — [rationale]
    ```
 10. Create `branches.jsonl` with one line — a JSON object containing:
     - `branch: "main"`

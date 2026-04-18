@@ -5,17 +5,17 @@ alwaysApply: false
 
 # Autoresearch Design
 
-You are setting up an autonomous research project. The human has a goal — something they want to understand, prove, disprove, or improve. Your job is to understand that goal, produce the configuration files the orchestrator needs, and then run the iterative experiment loop.
+You are setting up an autonomous research project. The human has a goal — something they want to understand, analyze, or improve. Your job is to understand that goal, produce the configuration files the orchestrator needs, and then run the iterative experiment loop.
 
-## MANDATORY: You MUST follow Phases 1-5 in order. Do NOT skip phases. Do NOT "just do it yourself."
+## MANDATORY: You MUST follow Phases 1-6 in order. Do NOT skip phases. Do NOT "just do it yourself."
 
-The entire point of autoresearch is the iterative loop — multiple rounds of parallel pro/con workers, each producing evidence. If you bypass the orchestrator and do the work directly, you have defeated the purpose.
+The entire point of autoresearch is the iterative loop — multiple rounds of parallel supportive/adversarial workers, each producing evidence. If you bypass the orchestrator and do the work directly, you have defeated the purpose.
 
 ## What kind of project is this?
 
 Two modes:
 
-- **qualitative**: workers produce write-ups (evidence for/against), an LLM judge scores and synthesizes into a main document. Default for research, analysis, documents, DD, decisions, evaluations.
+- **qualitative**: workers produce write-ups (evidence consistent/inconsistent with directions), an LLM judge scores and synthesizes into a main document. Default for research, analysis, documents, DD, decisions, evaluations.
 - **quantitative**: workers edit code, eval script returns a number, best score wins. Default for optimization (faster code, better accuracy, lower latency).
 
 Determine which fits the user's goal before proceeding.
@@ -47,31 +47,29 @@ Wait for confirmation. The user may add, remove, or just say go.
 
 ## Phase 3: Do the research
 
-Execute the research plan. For code goals: read the target files, imports, call graphs. For everything else: 2-5 web searches or source reads to understand the domain enough to propose specific directions.
+Execute the research plan. For code goals: read the target files, imports, call graphs. For everything else: 2-5 web searches or source reads to understand the domain enough to propose directions.
 
 Keep it bounded — 5 minutes of work max. This is setup, not execution. The loop does the deep work.
 
 ## Phase 4: Propose the agenda
 
-Present two lists — what to prove and what to disprove. Be specific, not generic.
+Present a list of broad initial directions to investigate. Do NOT pre-decompose into specific sub-vectors — the workers will discover specific angles during research and propose them via the roadmap.
+
+Derive directions from the goal itself. If the goal is a thesis with claims, each claim is a direction. If the goal is analysis, each major area of concern is a direction. If the user provides proprietary context or prior analysis, incorporate those as directions too.
 
 ```
 **<name>** — <one-line goal>
 
-Directions to prove:
-- <specific direction 1>
-- <specific direction 2>
-- <specific direction 3>
+Directions:
+- <broad direction 1>
+- <broad direction 2>
+- <broad direction 3>
+- <broad direction 4>
 
-Directions to disprove:
-- <specific direction 1>
-- <specific direction 2>
-- <specific direction 3>
-
-<N> workers (N/2 pro + N/2 con), <M> rounds, ~$<X>. Ready?
+<N> workers (N/2 supportive + N/2 adversarial), <M> rounds, ~$<X>. Ready?
 ```
 
-Aim for 4-6 prove directions and 3-5 disprove directions. Enough breadth to avoid tunnel vision in early rounds. Workers will discover more during the loop.
+Aim for 3-6 broad directions. Workers will discover sub-directions during research and the judge curates them into the roadmap each round.
 
 Wait for the human to edit and confirm. They may strike, add, or rearrange.
 
@@ -82,8 +80,8 @@ Things you figure out yourself (do NOT ask the human):
 - **What files to edit**: for code — look at imports, call graphs. For documents — create the initial document.
 - **What's off limits**: tests, configs, CI, build files, eval infrastructure.
 - **How to measure it**: for code — existing benchmarks or write an eval script. For documents — design a rubric.
-- **Parallelism**: default 2 (1 pro + 1 con). Must be even.
-- **Rounds**: default 3.
+- **Parallelism**: default 2 (1 supportive + 1 adversarial). Must be even.
+- **Rounds**: default 5.
 
 ## Phase 5: Write the config files
 
@@ -116,15 +114,10 @@ maximize
 - {file1}
 - {file2}
 
-## Directions to prove
-- {specific direction 1}
-- {specific direction 2}
-- {specific direction 3}
-
-## Directions to disprove
-- {specific direction 1}
-- {specific direction 2}
-- {specific direction 3}
+## Directions
+- {broad direction 1}
+- {broad direction 2}
+- {broad direction 3}
 ```
 
 **For qualitative measurement, add a `## Rubric` section with hard and soft gates:**
@@ -166,7 +159,7 @@ Make it executable.
 
 ### autoresearch/<name>/lockfile.txt
 
-Files the agents must not edit, one per line.
+Files the workers must not edit, one per line.
 
 ### For qualitative/document projects: Create the initial document
 
@@ -174,7 +167,7 @@ If the editable file is a document, write an initial version with a solid outlin
 
 ## Phase 6: Run the experiments
 
-After writing the files, ask: **"Ready to start? How many rounds? (default: 3)"**
+After writing the files, ask: **"Ready to start? How many rounds? (default: 5)"**
 
 When they confirm, find the orchestrator script:
 1. Common location: `~/Desktop/Projects/autoresearch-skills/bin/orchestrator.py`
@@ -197,4 +190,4 @@ When the orchestrator finishes, invoke `/autoresearch:review` to present the res
 - **NEVER skip the orchestrator.** Do not do the work yourself.
 - **NEVER skip Phase 5.** You must write program.md, eval.sh, and lockfile.txt before running.
 - **NEVER skip Phase 6.** The iterative loop must run.
-- **Parallelism must be even.** Minimum 2 (1 pro + 1 con).
+- **Parallelism must be even.** Minimum 2 (1 supportive + 1 adversarial).

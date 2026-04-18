@@ -42,7 +42,7 @@ def preflight():
 
     # Prompt templates
     prompts_dir = Path(__file__).parent.parent / "prompts"
-    for name in ("init.md", "pro.md", "con.md", "summarize.md", "merge.md"):
+    for name in ("init.md", "supportive.md", "adversarial.md", "summarize.md", "merge.md"):
         if not (prompts_dir / name).exists():
             errors.append(f"Missing prompt template: {prompts_dir / name}")
 
@@ -340,34 +340,24 @@ async def run_agent(
 
 
 def assign_directions(directions: list[dict], parallelism: int, matrix: dict[str, int]) -> list[dict]:
-    """Assign directions to workers. First half pro, second half con.
-    Returns list of {"direction": dict, "stance": "pro"|"con"} for each worker slot.
+    """Assign directions to workers. First half supportive, second half adversarial.
+    Returns list of {"direction": dict, "stance": "supportive"|"adversarial"} for each worker slot.
     Pulls least-covered directions first."""
     if not directions:
         return []
 
     half = parallelism // 2
-    prove_dirs = [d for d in directions if d["stance"] == "prove"]
-    disprove_dirs = [d for d in directions if d["stance"] == "disprove"]
-
     # Sort by coverage (least covered first), then by priority (lower = higher priority)
-    prove_sorted = sorted(prove_dirs, key=lambda d: (matrix.get(d["id"], 0), d["priority"]))
-    disprove_sorted = sorted(disprove_dirs, key=lambda d: (matrix.get(d["id"], 0), d["priority"]))
+    sorted_dirs = sorted(directions, key=lambda d: (matrix.get(d["id"], 0), d["priority"]))
 
     assignments = []
     for i in range(half):
-        if prove_sorted:
-            d = prove_sorted[i % len(prove_sorted)]
-        else:
-            d = directions[i % len(directions)]
-        assignments.append({"direction": d, "stance": "pro"})
+        d = sorted_dirs[i % len(sorted_dirs)]
+        assignments.append({"direction": d, "stance": "supportive"})
 
     for i in range(half):
-        if disprove_sorted:
-            d = disprove_sorted[i % len(disprove_sorted)]
-        else:
-            d = directions[i % len(directions)]
-        assignments.append({"direction": d, "stance": "con"})
+        d = sorted_dirs[i % len(sorted_dirs)]
+        assignments.append({"direction": d, "stance": "adversarial"})
 
     return assignments
 
@@ -722,8 +712,8 @@ async def main():
     # Load skill texts
     prompts_dir = Path(__file__).parent.parent / "prompts"
     init_skill = (prompts_dir / "init.md").read_text()
-    pro_skill = (prompts_dir / "pro.md").read_text()
-    con_skill = (prompts_dir / "con.md").read_text()
+    supportive_skill = (prompts_dir / "supportive.md").read_text()
+    adversarial_skill = (prompts_dir / "adversarial.md").read_text()
     summarize_skill = (prompts_dir / "summarize.md").read_text()
     merge_skill = (prompts_dir / "merge.md").read_text()
 
@@ -950,7 +940,7 @@ async def main():
             # Determine stance and assigned direction
             assigned_direction_id = None
             assigned_direction_title = ""
-            stance = "pro" if i <= parallelism // 2 else "con"
+            stance = "supportive" if i <= parallelism // 2 else "adversarial"
             if direction_assignments and (i - 1) < len(direction_assignments):
                 da = direction_assignments[i - 1]
                 stance = da["stance"]
@@ -961,15 +951,14 @@ async def main():
             worker_stances.append(stance)
 
             # Select the right prompt template for this worker's stance
-            worker_skill = pro_skill if stance == "pro" else con_skill
+            worker_skill = supportive_skill if stance == "supportive" else adversarial_skill
             worker_context = _build_shared_context(ar_dir, worker_skill, is_qualitative=is_qualitative)
 
             direction_directive = ""
             if assigned_direction_title:
-                stance_label = "prove" if stance == "pro" else "disprove"
                 direction_directive = (
-                    f"\n\nASSIGNED DIRECTION ({stance_label}): {assigned_direction_title}\n"
-                    f"Focus on this direction only. Other workers are covering other directions."
+                    f"\n\nASSIGNED DIRECTION: {assigned_direction_title}\n"
+                    f"Stance: {stance.upper()}. Focus on this direction only. Other workers are covering other directions."
                 )
 
             user_msg = (

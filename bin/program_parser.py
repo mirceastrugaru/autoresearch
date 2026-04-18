@@ -163,71 +163,68 @@ def validate_rubric(ar_dir: Path):
 
 def parse_roadmap(ar_dir: Path) -> list[dict]:
     """Parse roadmap.md into a list of directions.
-    Returns [{"id": "prove-1", "title": "...", "stance": "prove|disprove", "priority": N}]."""
+    Returns [{"id": "dir-1", "title": "...", "priority": N}].
+    Directions are stance-neutral — supportive/adversarial assignment happens in the orchestrator."""
     roadmap_path = ar_dir / "roadmap.md"
     if not roadmap_path.exists():
         return []
     text = roadmap_path.read_text()
     directions = []
-    current_stance = None
     priority = 0
+    in_directions = False
     for line in text.splitlines():
         line = line.strip()
-        if line.lower().startswith("## prove"):
-            current_stance = "prove"
-            priority = 0
-        elif line.lower().startswith("## disprove"):
-            current_stance = "disprove"
-            priority = 0
-        elif current_stance and re.match(r"^\d+\.\s+", line):
+        if line.lower().startswith("## directions") or line.lower().startswith("# roadmap"):
+            in_directions = True
+            continue
+        if line.startswith("## ") and in_directions:
+            break
+        if not in_directions:
+            continue
+        if re.match(r"^\d+\.\s+", line):
             priority += 1
             title = re.sub(r"^\d+\.\s+", "", line).strip()
             if title.startswith("[FLAGGED FOR REVIEW]"):
                 title = title.replace("[FLAGGED FOR REVIEW]", "").strip()
             directions.append({
-                "id": f"{current_stance}-{priority}",
+                "id": f"dir-{priority}",
                 "title": title,
-                "stance": current_stance,
                 "priority": priority,
             })
-        elif current_stance and line.startswith("- "):
+        elif line.startswith("- "):
             priority += 1
             title = line.lstrip("- ").strip()
             if title.startswith("[FLAGGED FOR REVIEW]"):
                 title = title.replace("[FLAGGED FOR REVIEW]", "").strip()
             directions.append({
-                "id": f"{current_stance}-{priority}",
+                "id": f"dir-{priority}",
                 "title": title,
-                "stance": current_stance,
                 "priority": priority,
             })
     return directions
 
 
 def parse_program_directions(ar_dir: Path) -> list[dict]:
-    """Parse directions from program.md (## Directions to prove / ## Directions to disprove)."""
+    """Parse directions from program.md (## Directions section)."""
     text = _read_program(ar_dir)
     directions = []
 
-    for section_header, stance in [("## Directions to prove", "pro"), ("## Directions to disprove", "con")]:
-        m = re.search(re.escape(section_header) + r"\n(.*?)(?=\n##|\Z)", text, re.DOTALL)
-        if not m:
-            continue
-        priority = 0
-        for line in m.group(1).strip().splitlines():
-            line = line.strip()
-            if line.startswith("- "):
-                priority += 1
-                title = line.lstrip("- ").strip()
-                # Strip everything after " — " for display
-                short_title = title.split(" — ")[0] if " — " in title else title
-                directions.append({
-                    "id": f"{'prove' if stance == 'pro' else 'disprove'}-{priority}",
-                    "stance": stance,
-                    "text": short_title,
-                    "fullText": title,
-                    "priority": priority,
-                })
+    m = re.search(r"## Directions\n(.*?)(?=\n##|\Z)", text, re.DOTALL)
+    if not m:
+        return []
+    priority = 0
+    for line in m.group(1).strip().splitlines():
+        line = line.strip()
+        if line.startswith("- "):
+            priority += 1
+            title = line.lstrip("- ").strip()
+            short_title = title.split(" — ")[0] if " — " in title else title
+            directions.append({
+                "id": f"dir-{priority}",
+                "text": short_title,
+                "fullText": title,
+                "priority": priority,
+            })
     return directions
 
 
