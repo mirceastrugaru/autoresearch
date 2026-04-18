@@ -11,7 +11,7 @@
   "plugins": [
     {
       "name": "autoresearch",
-      "source": ".",
+      "source": "./",
       "description": "Autonomous experimentation skill. Spawns parallel AI agents to optimize code against a measurable metric.",
       "version": "0.1.0"
     }
