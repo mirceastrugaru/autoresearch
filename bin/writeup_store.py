@@ -16,7 +16,6 @@ PERSIST_FILES = [
     "eval_scores.json",
     "summary.txt",
     "score.txt",
-    "status.txt",
     "roadmap_append.md",
 ]
 
@@ -141,7 +140,7 @@ def _load_persisted_writeup(exp_dir: Path, log_entries: list[dict], full: bool =
         round_num = _infer_round(exp_id, log_entries)
         worker_id = f"w{log_entry.get('worker', '?')}"
     else:
-        status = _read_file(exp_dir / "status.txt") or "unknown"
+        status = "unknown"
         direction = ""
         round_num = 0
         worker_id = "?"

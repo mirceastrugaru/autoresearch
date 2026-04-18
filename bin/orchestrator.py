@@ -391,8 +391,8 @@ def dlog(ar_dir: Path, section: str, **fields):
 
 # Orchestrator-managed metadata files workers legitimately write.
 WORKER_META_FILES = {
-    "experiment_id.txt", "experiment_id_output.txt",
-    "score.txt", "status.txt", "hypothesis.txt",
+    "experiment_id_output.txt",
+    "score.txt", "hypothesis.txt",
     "diff.txt", "parent.txt", "summary.txt", "eval_scores.json",
     "writeup.md", "roadmap_append.md",
 }
@@ -915,7 +915,6 @@ async def main():
             exp_num = state["experiment_count"] + i
             exp_id = f"exp-{round_num}-{i}-{hashlib.md5(f'{time.time()}{i}'.encode()).hexdigest()[:8]}"
             exp_ids.append(exp_id)
-            (wdir / "experiment_id.txt").write_text(exp_id)
 
             parent_exp = state.get("last_promoted_experiment", 0)
 
@@ -1039,9 +1038,7 @@ async def main():
                 continue
 
             # Instruction-violation check: did the worker write experiment_id_output.txt?
-            # (Workers dirs are rmtree'd each round, so this can only fail if the model
-            # didn't follow instructions — not a staleness issue.)
-            expected = read_or(wdir / "experiment_id.txt", "NONE").strip()
+            expected = exp_ids[i - 1]
             actual = read_or(wdir / "experiment_id_output.txt", "MISSING").strip()
             if expected != actual:
                 print(f"  worker-{i}: INSTRUCTION_VIOLATION (expected {expected}, got {actual})")
@@ -1058,23 +1055,8 @@ async def main():
                 })
                 continue
 
-            # Thought experiment?
-            status = read_or(wdir / "status.txt", "real").strip()
             hypothesis = read_or(wdir / "hypothesis.txt", "").strip()
             summary = read_or(wdir / "summary.txt", "").strip()
-
-            if status == "thought":
-                print(f"  worker-{i}: THOUGHT — {hypothesis[:80]}")
-                dlog(ar_dir, "worker_thought", worker=i, exp=exp_num,
-                     hypothesis=hypothesis, summary=summary)
-                append_log(ar_dir, {
-                    "experiment_id": exp_num, "branch": state["active_branch"],
-                    "worker": i, "status": "thought",
-                    "hypothesis": hypothesis, "summary": summary, "diff": "",
-                    "score": 0, "best_score_at_time": state["best_score"],
-                    "improved": False,
-                })
-                continue
 
             # Score (robust: take the last numeric line of score.txt)
             score_str = read_or(wdir / "score.txt", "0").strip()

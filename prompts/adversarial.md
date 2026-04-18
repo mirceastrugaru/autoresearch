@@ -32,11 +32,11 @@ Do NOT re-read any of these from disk.
 
    If you genuinely found nothing new to investigate, write a one-line explanation of why in the file. Do not leave it empty.
 
-7. **Quantitative mode only: run eval.** Execute the eval command from the user prompt. Write the resulting number to `score.txt`.
+7. **Write `summary.txt`.** One sentence: what you actually found. Not your hypothesis — your conclusion after research.
 
-8. **LAST.** Write your experiment ID (from the user prompt) to `experiment_id_output.txt`. Nothing else after this — if this file is missing, your work is discarded.
+8. **Quantitative mode only: run eval.** Execute the eval command from the user prompt. Write the resulting number to `score.txt`.
 
-Finish with: `EXPERIMENT COMPLETE.`
+9. **LAST.** Write your experiment ID (from the user prompt) to `experiment_id_output.txt`. Nothing else after this — if this file is missing, your work is discarded.
 
 ## Stance discipline
 
