@@ -42,9 +42,6 @@ python3.13 bin/orchestrator.py <rounds> <project_dir> <initiative_name>
 python3.13 bin/orchestrator.py --help
 python3.13 bin/orchestrator.py 10 . my-initiative --workers 4 --max-cost 5.00
 
-# Live dashboard over SSE (worker status, experiment log, best document viewer)
-python3 bin/monitor.py <project_dir> <initiative_name> --port 8082
-
 # Trace serialization tests
 python3 bin/test_trace.py
 ```
