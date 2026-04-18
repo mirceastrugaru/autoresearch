@@ -42,7 +42,7 @@ def elapsed_str(start: datetime) -> str:
 
 
 _EPHEMERAL_NAMES = {
-    "score.txt", "summary.txt", "hypothesis.txt", "parking_lot_addition.txt",
+    "score.txt", "summary.txt", "hypothesis.txt",
     "experiment_id.txt", "violations.txt", "experiment_10_output.txt",
 }
 
@@ -152,10 +152,10 @@ def parse_jsonl_lines(lines: list[str]) -> list[dict]:
 # ── State model ───────────────────────────────────────────────────────────────
 
 class WorkerState:
-    def __init__(self, worker_num, exp_id, role_bias, trace_file, launch_ts):
+    def __init__(self, worker_num, exp_id, stance, trace_file, launch_ts):
         self.worker_num = worker_num
         self.exp_id = exp_id
-        self.role_bias = role_bias
+        self.stance = stance
         self.trace_file = Path(trace_file) if trace_file else None
         self.launch_ts = parse_ts(launch_ts)
         self.trace_offset = 0
@@ -171,7 +171,7 @@ class WorkerState:
         return {
             "worker_num": self.worker_num,
             "exp_id": self.exp_id,
-            "role_bias": self.role_bias,
+            "stance": self.stance,
             "elapsed": elapsed_str(self.launch_ts),
             "tools": [{"text": t, "file": f} for t, f in self.tools],
             "hypothesis": self.hypothesis,
@@ -305,12 +305,12 @@ class Poller:
                 w = WorkerState(
                     worker_num=e.get("worker", 0),
                     exp_id=e.get("exp_id", "?"),
-                    role_bias=e.get("role_bias", "?"),
+                    stance=e.get("stance", "?"),
                     trace_file=e.get("trace_file", ""),
                     launch_ts=e.get("ts", ""),
                 )
                 st.workers[e.get("worker", 0)] = w
-                st.debug_events.append(f"{ts}  worker_launch  worker={e.get('worker')}  [{e.get('role_bias','')}]  exp={e.get('exp_id','')[:16]}")
+                st.debug_events.append(f"{ts}  worker_launch  worker={e.get('worker')}  [{e.get('stance','')}]  exp={e.get('exp_id','')[:16]}")
 
             elif section == "worker_result":
                 wnum = e.get("worker", 0)
@@ -463,10 +463,9 @@ HTML = r"""<!DOCTYPE html>
   #log-section-left { padding: 8px; border-top: 1px solid #30363d; }
   .worker-card.done { border-color: #21262d; opacity: 0.85; }
   .whead { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-weight: bold; }
-  .bias-CONSERVATIVE { color: #39d353; }
-  .bias-MODERATE { color: #ffa657; }
-  .bias-AGGRESSIVE { color: #f85149; }
-  .bias-UNKNOWN { color: #8b949e; }
+  .stance-pro { color: #39d353; }
+  .stance-con { color: #f85149; }
+  .stance-unknown { color: #8b949e; }
   .running-tag { color: #ffa657; font-size: 11px; }
   .done-tag { font-size: 11px; }
   .done-keep { color: #39d353; }
@@ -648,7 +647,7 @@ function renderWorkers(data) {
 
   let html = '';
   for (const w of workers) {
-    const biasClass = 'bias-' + (w.role_bias || 'UNKNOWN');
+    const stanceClass = 'stance-' + (w.stance || 'unknown');
     let statusHtml = '';
     if (w.done) {
       const sc = w.score != null ? ` score=${w.score.toFixed(3)}` : '';
@@ -668,7 +667,7 @@ function renderWorkers(data) {
       <div class="worker-card${w.done?' done':''}">
         <div class="whead">
           <span>worker-${w.worker_num}</span>
-          <span class="${biasClass}">${esc(w.role_bias)}</span>
+          <span class="${stanceClass}">${esc(w.stance)}</span>
           ${statusHtml}
         </div>
         ${hyp}

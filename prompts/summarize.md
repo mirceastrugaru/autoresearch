@@ -34,7 +34,7 @@ You are the autoresearch summarize skill. You run headless (no human interaction
 
 8. Note convergence state: pivots, discard streaks, assumption inversions.
 
-9. Read `parking_lot.md` if it exists. List remaining untested ideas.
+9. Read `roadmap.md` if it exists. List remaining untested ideas.
 
 10. Write the summary to `findings.md`:
 
@@ -65,8 +65,8 @@ You are the autoresearch summarize skill. You run headless (no human interaction
 ## Directions exhausted
 - {direction or "none yet"}
 
-## Parking lot (untested ideas)
-- {idea}
+## Roadmap (remaining directions)
+- {prove/disprove}: {direction}
 
 ## Convergence notes
 - Pivots: {count} ({branch names})
