@@ -58,13 +58,13 @@ It writes three files in your project:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-api03-...
-python3 /path/to/autoresearch-skills/bin/orchestrator.py <rounds> <project-dir>
+python3.13 /path/to/autoresearch/bin/orchestrator.py <rounds> <project-dir>
 ```
 
 For example, 10 rounds on the current directory:
 
 ```bash
-python3 /path/to/autoresearch-skills/bin/orchestrator.py 10 .
+python3.13 /path/to/autoresearch/bin/orchestrator.py 10 .
 ```
 
 Each round spawns N parallel agents (default 3). So 10 rounds = 30 experiments.
