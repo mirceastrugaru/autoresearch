@@ -4,6 +4,7 @@
 import asyncio
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -11,6 +12,81 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+# ── Preflight checks ────────────────────────────────────────────────────────
+
+def preflight():
+    """Check all requirements before doing anything."""
+    errors = []
+
+    # Python version
+    if sys.version_info < (3, 10):
+        errors.append(
+            f"Python 3.10+ required (you have {sys.version_info.major}.{sys.version_info.minor}).\n"
+            f"  Install: brew install python@3.13\n"
+            f"  Then run: python3.13 {sys.argv[0]}"
+        )
+
+    # claude-agent-sdk
+    try:
+        import claude_agent_sdk  # noqa: F401
+    except ImportError:
+        errors.append(
+            "claude-agent-sdk not installed.\n"
+            "  Install: pip install claude-agent-sdk"
+        )
+
+    # API key
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        errors.append(
+            "ANTHROPIC_API_KEY not set.\n"
+            "  Get one at: https://console.anthropic.com/settings/keys\n"
+            "  Then: export ANTHROPIC_API_KEY=sk-ant-api03-..."
+        )
+
+    # Prompt templates
+    prompts_dir = Path(__file__).parent.parent / "prompts"
+    for name in ("init.md", "experiment.md", "summarize.md"):
+        if not (prompts_dir / name).exists():
+            errors.append(f"Missing prompt template: {prompts_dir / name}")
+
+    # Project config (only if a project dir is specified)
+    project_dir = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else Path.cwd()
+    ar_dir = project_dir / "autoresearch"
+    state_file = ar_dir / "state.json"
+
+    if not state_file.exists():
+        # Fresh run — need config files
+        if not (ar_dir / "program.md").exists():
+            errors.append(
+                f"No autoresearch/program.md found in {project_dir}.\n"
+                f"  Run /autoresearch:design in Claude Code first, or create it manually.\n"
+                f"  See README.md for the format."
+            )
+        elif not (ar_dir / "eval.sh").exists():
+            eval_mode = "quantitative"
+            try:
+                text = (ar_dir / "program.md").read_text()
+                m = re.search(r"## Mode\s*\n(\w+)", text)
+                if m:
+                    eval_mode = m.group(1)
+            except Exception:
+                pass
+            if eval_mode == "quantitative":
+                errors.append(
+                    f"No autoresearch/eval.sh found in {project_dir}.\n"
+                    f"  Run /autoresearch:design in Claude Code first, or create it manually."
+                )
+
+    if errors:
+        print("PREFLIGHT FAILED:\n")
+        for i, e in enumerate(errors, 1):
+            print(f"  {i}. {e}\n")
+        sys.exit(1)
+
+
+preflight()
 
 from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
 

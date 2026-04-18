@@ -18,38 +18,20 @@ Round 3:  worker-1: 12.4M ★ worker-2: 12.3M  worker-3: 10.5M   → promote wor
 
 After 30 rounds you come back to code that's measurably better, a log of every experiment that was tried, and a summary of what worked.
 
-## Requirements
-
-- [Claude Code](https://claude.ai/code) (for the slash commands)
-- Python 3.10+ with `claude-agent-sdk`:
-  ```
-  pip install claude-agent-sdk
-  ```
-- An Anthropic API key from [console.anthropic.com](https://console.anthropic.com/settings/keys)
-
 ## Install
 
-### Option A: As a Claude Code plugin (recommended)
-
-Add this repo as a local marketplace, or clone and point to it:
-
 ```bash
-git clone https://github.com/youruser/autoresearch-skills.git
+git clone https://github.com/mirceastrugaru/autoresearch.git
+cd autoresearch
+./install.sh
 ```
 
-Then either:
+The install script:
+- Registers the plugin in Claude Code (permanent — survives restarts)
+- Checks for Python 3.10+ and installs `claude-agent-sdk` if needed
+- Tells you if `ANTHROPIC_API_KEY` is missing and where to get one
 
-```bash
-# Per-session
-claude --plugin-dir /path/to/autoresearch-skills
-
-# Or permanent: add to ~/.claude/plugins/installed_plugins.json
-# (see "Manual plugin registration" below)
-```
-
-### Option B: Just the orchestrator
-
-If you don't want the plugin integration, you only need the `bin/` and `prompts/` directories. The orchestrator runs standalone.
+After install, restart Claude Code. The `/autoresearch:design` and `/autoresearch:review` commands will be available in every session.
 
 ## Usage
 
@@ -229,32 +211,6 @@ The orchestrator will use 3 independent AI evaluators per experiment, taking the
 
 - `ANTHROPIC_API_KEY` — required for the orchestrator
 - `AUTORESEARCH_MODEL` — override the model (default: `claude-sonnet-4-5-20250929`)
-
-## Manual plugin registration
-
-To permanently install without a marketplace, add to `~/.claude/plugins/installed_plugins.json`:
-
-```json
-"autoresearch@local": [
-  {
-    "scope": "user",
-    "installPath": "/absolute/path/to/autoresearch-skills",
-    "version": "0.1.0",
-    "installedAt": "2026-01-01T00:00:00.000Z",
-    "lastUpdated": "2026-01-01T00:00:00.000Z"
-  }
-]
-```
-
-And enable in `~/.claude/settings.json`:
-
-```json
-"enabledPlugins": {
-  "autoresearch@local": true
-}
-```
-
-Restart Claude Code to pick up the plugin.
 
 ## License
 
