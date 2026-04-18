@@ -137,6 +137,13 @@ def read_parallelism(ar_dir: Path) -> int:
     return int(m.group(1)) if m else 3
 
 
+def read_direction(ar_dir: Path) -> str:
+    """Read optimization direction from program.md. Returns 'maximize' or 'minimize'."""
+    text = (ar_dir / "program.md").read_text()
+    m = re.search(r"## Direction\s*\n(\w+)", text)
+    return m.group(1).lower() if m else "maximize"
+
+
 # ── File helpers ─────────────────────────────────────────────────────────────
 
 
@@ -212,10 +219,13 @@ def check_safety_violation(diff_text: str) -> bool:
     return False
 
 
-def check_noise(new_score: float, best_score: float) -> bool:
+def check_noise(new_score: float, best_score: float, direction: str = "maximize") -> bool:
     if best_score == 0:
-        return new_score > 0
-    return (new_score - best_score) / abs(best_score) > NOISE_THRESHOLD
+        return new_score != 0
+    delta = (new_score - best_score) / abs(best_score)
+    if direction == "minimize":
+        return delta < -NOISE_THRESHOLD
+    return delta > NOISE_THRESHOLD
 
 
 # ── Worker management ────────────────────────────────────────────────────────
@@ -375,12 +385,14 @@ async def main():
         state = read_state(ar_dir)
         state["eval_mode"] = read_eval_mode(ar_dir)
         state["parallelism"] = read_parallelism(ar_dir)
+        state["direction"] = read_direction(ar_dir)
         print(f"  Round: {state['round']} / Experiments: {state['experiment_count']} / Best: {state['best_score']}")
         print(f"  Branch: {state['active_branch']} / Discard streak: {state['discard_streak']}")
     else:
         eval_mode = read_eval_mode(ar_dir)
         parallelism = read_parallelism(ar_dir)
-        print(f"Eval mode: {eval_mode} / Parallelism: {parallelism}")
+        direction = read_direction(ar_dir)
+        print(f"Eval mode: {eval_mode} / Parallelism: {parallelism} / Direction: {direction}")
         print("\n--- INIT ---")
 
         output, _ = await run_agent(
@@ -402,6 +414,7 @@ async def main():
             sys.exit(1)
 
         state = read_state(ar_dir)
+        state["direction"] = direction
         print(f"Baseline score: {state['best_score']}")
 
     # ── Phase 2: Experiment loop ──
@@ -557,7 +570,7 @@ async def main():
                 print(f"  worker-{i}: REJECTED (empty)")
                 skip = True
 
-            improved = False if skip else check_noise(worker_score, state["best_score"])
+            improved = False if skip else check_noise(worker_score, state["best_score"], state.get("direction", "maximize"))
 
             append_log(ar_dir, {
                 "experiment_id": exp_num, "branch": state["active_branch"],
@@ -569,7 +582,10 @@ async def main():
 
             if improved:
                 round_had_improvement = True
-                if best_worker_score is None or worker_score > best_worker_score:
+                direction = state.get("direction", "maximize")
+                if best_worker_score is None or (
+                    worker_score < best_worker_score if direction == "minimize" else worker_score > best_worker_score
+                ):
                     best_worker = i
                     best_worker_score = worker_score
 
@@ -580,8 +596,12 @@ async def main():
             for f in parse_editable_files(ar_dir):
                 src = wdir / f
                 if src.exists():
-                    shutil.copy2(src, ar_dir / "best" / f)
-                    shutil.copy2(src, ar_dir / "branches" / state["active_branch"] / f)
+                    best_dest = ar_dir / "best" / f
+                    best_dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, best_dest)
+                    branch_dest = ar_dir / "branches" / state["active_branch"] / f
+                    branch_dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, branch_dest)
             state["best_score"] = best_worker_score
             (ar_dir / "best_score.txt").write_text(f"{best_worker_score}\n")
             state["discard_streak"] = 0

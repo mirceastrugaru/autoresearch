@@ -54,6 +54,9 @@ Each initiative gets its own directory under `autoresearch/`. Create `autoresear
 ## Mode
 {quantitative or qualitative}
 
+## Direction
+{maximize or minimize — e.g., minimize for latency/time, maximize for throughput/accuracy}
+
 ## Parallelism
 {default 3}
 
