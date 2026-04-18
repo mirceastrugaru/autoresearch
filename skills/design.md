@@ -85,11 +85,16 @@ Files the agents must not edit, one per line.
 
 ## After writing files
 
-Summarize what you set up:
-- The goal
-- How it's measured
-- What files the agents will edit
-- The research directions
-- How to run the orchestrator
+Briefly summarize what you set up (goal, metric, files, directions). Then ask:
 
-Keep it brief. The human wants to start, not read a report.
+**"Ready to start? How many rounds? (default: 10, that's 30 experiments)"**
+
+When they confirm, run the orchestrator. Use the Bash tool with `run_in_background` so it doesn't block the session:
+
+```bash
+ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY python3.13 /Users/mircea/Desktop/Projects/autoresearch/bin/orchestrator.py <rounds> .
+```
+
+If `ANTHROPIC_API_KEY` is not in the environment, ask the human for it before running. Do not tell them to run it themselves — you run it.
+
+Tell the human: "Orchestrator is running in the background. You'll be notified when it finishes. You can keep working in this session. When it's done, use /autoresearch:review to see results."
