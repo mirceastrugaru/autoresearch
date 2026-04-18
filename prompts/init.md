@@ -1,51 +1,30 @@
-# autoresearch-init
+# init
 
-You are the autoresearch init skill. You run headless (no human interaction). Your job is to set up the working directories, branching infrastructure, and establish a baseline score.
+Headless. No human. Set up the autoresearch project so experiments can run.
 
-## Inputs (provided in the prompt)
+## inputs
 
-- Project directory path
-- Autoresearch directory path (this is the initiative directory, e.g. `autoresearch/sort-optimization/`)
-- Eval mode (quantitative or qualitative)
-- Parallelism setting
+Project dir, autoresearch dir, eval mode, parallelism.
 
-## Resume detection
+## resume
 
-First, check if `state.json` exists in the autoresearch directory.
+If `state.json` exists: read it, print summary, print "INIT RESUMED." and stop.
 
-**If it exists:** Read it, print a summary of the state (round, experiment count, best score, active branch, discard streak), then print "INIT RESUMED." and stop.
+## fresh init
 
-**If it does not exist:** Proceed with fresh initialization below.
-
-## Fresh initialization steps
-
-1. Read `program.md` in the autoresearch directory. If missing, print "INIT FAILED: program.md not found" and stop.
-
-2. Read `eval.sh` in the autoresearch directory. If missing and eval mode is quantitative, print "INIT FAILED: eval.sh not found" and stop.
-
-3. Parse the "Editable files" section from program.md to get the list of files. These are paths relative to the project directory.
-
-4. Create `best/` in the autoresearch directory. Copy all editable files (from the project directory) into it. If a file doesn't exist, print "INIT FAILED: editable file {path} not found" and stop.
-
-5. Create `branches/main/` in the autoresearch directory. Copy the same editable files into it.
-
-6. Create `branches.jsonl` with the initial branch entry:
-   ```json
-   {"branch": "main", "forked_from": "baseline", "status": "active", "created_at": "ISO8601", "experiments": 0, "best_score": 0, "notes": "initial strategy"}
-   ```
-
-7. Run `bash <autoresearch_dir>/eval.sh <autoresearch_dir>/best` and capture stdout. The output must be a single number. If it fails or isn't a number, print "INIT FAILED: eval.sh did not produce a valid number. Output was: {output}" and stop.
-   - Exception: if eval mode is "qualitative", skip this step and set baseline score to 0.
-
-8. Write the baseline score to `best_score.txt`.
-
-9. Create an empty file `log.jsonl`.
-
-10. Create `findings.md` with content "# Autoresearch Findings\n\nNo experiments run yet."
-
-11. Create `parking_lot.md` with content "# Parking Lot\n\nDeferred ideas for future experiments.\n"
-
-12. Write `state.json`:
+1. Read `program.md`. Missing → "INIT FAILED: program.md not found" and stop.
+2. Read `eval.sh` (if quantitative mode). Missing → "INIT FAILED: eval.sh not found" and stop.
+3. Read the target, directions, and editable files from program.md.
+4. Set up `best/` and `branches/main/` in the autoresearch dir:
+   - If editable files exist in the project dir, copy them in.
+   - If they don't exist, **create them.** Read the target and directions in program.md. Write whatever scaffolding is needed — source code, build scripts, config files — so that the eval can run and experiments can iterate. This is the baseline that all workers start from.
+5. Run eval on `best/`. Quantitative: `bash eval.sh best/` → must produce a number. Qualitative: skip, baseline = 0.
+6. Write `best_score.txt`.
+7. Create empty `log.jsonl`.
+8. Create `findings.md`: "# Findings\n\nNo experiments yet."
+9. Create `parking_lot.md`: "# Parking Lot\n\nDeferred ideas.\n"
+10. Create `branches.jsonl` with initial entry: `{"branch": "main", "forked_from": "baseline", "status": "active", "created_at": "ISO8601", "experiments": 0, "best_score": 0}`
+11. Write `state.json`:
     ```json
     {
       "version": 1,
@@ -61,11 +40,10 @@ First, check if `state.json` exists in the autoresearch directory.
       "parallelism": <N>
     }
     ```
+12. Print "INIT COMPLETE. Baseline score: {score}"
 
-13. Print: "INIT COMPLETE. Baseline score: {score}"
+## rules
 
-## Important
-
-- Do not ask the human anything. You are headless.
-- If anything fails, print the failure reason and stop.
-- All file operations use absolute paths provided in the prompt.
+- Headless. No human interaction.
+- If anything fails, print reason and stop.
+- Absolute paths from prompt.
