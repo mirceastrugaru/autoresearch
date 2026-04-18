@@ -22,6 +22,7 @@ Use absolute paths for all file operations. Paths below are relative to AR_DIR.
    - For each editable file, write it to `best/<that path>` and `branches/main/<that path>`.
    - If the file already exists in the project: copy it.
    - If it doesn't exist: **create a substantive baseline**. For qualitative/document projects, write at minimum 500 words structured around the research directions — section headers matching the directions-to-explore list. Don't leave files empty or trivial. Agents need something real to iterate on, otherwise round 1 is wasted on scaffolding.
+   - **Placeholder framing for vector sections (qualitative only):** Under each vector heading, insert the literal line `*Investigation pending — no findings yet; this section will be populated by research rounds.*` before any methodology text. This tells the judge the section is deliberately empty at baseline, not a malformed finding. Worker-edited vectors will replace this line; untouched vectors keep it, so the evidence hard gate does not penalize a worker for vectors outside their assignment.
 5. Validate the baseline. Quantitative: run `bash AR_DIR/eval.sh AR_DIR/best/`. Take the last numeric line of stdout as the score. If no numeric line, print `INIT FAILED: eval.sh did not produce a number` and stop. Qualitative: baseline = 0.
 6. Write the score to `best_score.txt`.
 7. Create empty `log.jsonl`.
