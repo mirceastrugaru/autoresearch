@@ -5,9 +5,9 @@ alwaysApply: false
 
 # Autoresearch Design
 
-You are setting up an autonomous research project. The human has a goal — something they want to make better. Your job is to understand that goal, explore the codebase, and produce the configuration files the orchestrator needs.
+You are setting up an autonomous research project. The human has a goal — something they want to make better. Your job is to understand that goal, explore the codebase, and produce the configuration files the orchestrator needs. Then run the experiments and present results.
 
-## How to run this conversation
+## Phase 1: Understand the goal
 
 **Start by asking: "What's your research goal? What are you trying to improve?"**
 
@@ -24,19 +24,19 @@ After reading the code, present a **complete research plan** in one message:
 
 **ONE follow-up, not a questionnaire.** The human confirms or adjusts, then you write the config files. That's it — two exchanges maximum.
 
-Things you need to figure out BY READING THE CODE (do NOT ask the human):
+Things you figure out BY READING THE CODE (do NOT ask the human):
 
-- **What files to edit**: Look at imports, call graphs, the directory structure. If the goal is "make the sort faster", find the sort code.
+- **What files to edit**: Look at imports, call graphs, the directory structure.
 - **What's off limits**: Tests, configs, CI, build files, lockfiles. Obvious from the project structure.
-- **How to measure it**: Look for existing benchmarks, test scripts, Makefiles. If none exist, write an eval script yourself based on what the code does.
-- **Research directions**: Read the code and identify concrete opportunities. Don't ask the human "what directions?" — propose directions based on what you see.
+- **How to measure it**: Look for existing benchmarks, test scripts, Makefiles. If none exist, write an eval script yourself.
+- **Research directions**: Read the code and identify concrete opportunities.
 - **Parallelism**: Default 3. Never ask about this.
 
-**Only ask the human when you genuinely cannot determine something from the code.** For example, if there are multiple plausible metrics and you can't tell which one matters more.
+**Only ask the human when you genuinely cannot determine something from the code.**
 
-## When you have enough information
+## Phase 2: Write the config files
 
-Write three files:
+Create `autoresearch/` in the current working directory with:
 
 ### autoresearch/program.md
 
@@ -63,46 +63,42 @@ Write three files:
 {research directions — specific, actionable ideas}
 ```
 
-If qualitative, add a rubric:
-```markdown
-## Rubric
-| Criterion | Weight | Scale | Description |
-|-----------|--------|-------|-------------|
-| ...       | ...    | 1-10  | ...         |
-```
+If qualitative, add a `## Rubric` section with criteria, weights, and scale.
 
 ### autoresearch/eval.sh
 
-For quantitative: an executable bash script that accepts a directory argument (`$1`) and prints one number to stdout. Build this from existing benchmarks/tests if possible, or write a new one.
+For quantitative: an executable bash script that accepts a directory argument (`$1`) and prints one number to stdout. Build from existing benchmarks if possible. Make it executable.
 
 For qualitative: a placeholder that errors (the orchestrator handles qualitative eval differently).
-
-Make it executable.
 
 ### autoresearch/lockfile.txt
 
 Files the agents must not edit, one per line.
 
-## After writing files
+## Phase 3: Run the experiments
 
-Briefly summarize what you set up (goal, metric, files, directions). Then ask:
+After writing the files, ask: **"Ready to start? How many rounds? (default: 10, that's 30 experiments)"**
 
-**"Ready to start? How many rounds? (default: 10, that's 30 experiments)"**
+When they confirm, find the orchestrator script. Search for it:
+1. Check if `autoresearch` plugin is installed: look for `bin/orchestrator.py` relative to the plugin install path
+2. Common locations: `~/Desktop/Projects/autoresearch/bin/orchestrator.py`, `~/autoresearch/bin/orchestrator.py`
+3. Search: `find ~ -path "*/autoresearch/bin/orchestrator.py" -maxdepth 4 2>/dev/null | head -1`
 
-When they confirm, run the orchestrator directly using the Bash tool (NOT in background — you want to see the output):
+If `ANTHROPIC_API_KEY` is not in the environment, ask the human for it before running.
+
+Run it directly using the Bash tool (NOT in background — you need to see the output):
 
 ```bash
-ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY python3.13 /Users/mircea/Desktop/Projects/autoresearch/bin/orchestrator.py <rounds> .
+ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY python3.13 <orchestrator_path> <rounds> .
 ```
 
-Set the timeout to 600000 (10 minutes) since this takes a while.
+Set the Bash timeout to 600000 (10 minutes).
 
-If `ANTHROPIC_API_KEY` is not in the environment, ask the human for it before running. Do not tell them to run it themselves — you run it.
-
-While it runs, the output streams back to you. After each round completes, relay the key info to the human:
-- Which round just finished
-- What scores the workers got
-- Which worker was promoted (or if no improvement)
+While it runs, the output streams back to you. After each round, relay the key info to the human:
+- Which round finished, what scores workers got
+- Which worker was promoted or if no improvement
 - Current best score
 
-When the orchestrator finishes, invoke the `/autoresearch:review` skill to present the results.
+## Phase 4: Present results
+
+When the orchestrator finishes, invoke `/autoresearch:review` to present the results.

@@ -92,7 +92,7 @@ from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-MODEL = "claude-sonnet-4-5-20250929"
+MODEL = os.environ.get("AUTORESEARCH_MODEL", "claude-sonnet-4-5-20250929")
 SUMMARIZE_EVERY = 5
 DISCARD_STREAK_WARN = 3
 DISCARD_STREAK_PIVOT = 5
@@ -324,6 +324,20 @@ def revalidate_best(ar_dir: Path, state: dict):
 
 
 async def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print("Usage: orchestrator.py [rounds] [project-dir]")
+        print()
+        print("  rounds       Number of experiment rounds (default: 10)")
+        print("               Each round runs N parallel experiments (default N=3)")
+        print("  project-dir  Path to project with autoresearch/ config (default: cwd)")
+        print()
+        print("Environment:")
+        print("  ANTHROPIC_API_KEY     Required. Get from console.anthropic.com/settings/keys")
+        print("  AUTORESEARCH_MODEL    Model to use (default: claude-sonnet-4-5-20250929)")
+        print()
+        print("Setup: run /autoresearch:design in Claude Code first to create config files.")
+        sys.exit(0)
+
     max_rounds = int(sys.argv[1]) if len(sys.argv) > 1 else 10
     project_dir = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else Path.cwd()
     ar_dir = project_dir / "autoresearch"
@@ -403,12 +417,7 @@ async def main():
         # Prepare workers
         prepare_workers(ar_dir, state["active_branch"], parallelism)
 
-        # Build context
-        log_tail = read_log_tail(ar_dir, LOG_TAIL_SIZE)
-        findings = read_or(ar_dir / "findings.md", "none yet")
-        branches = read_or(ar_dir / "branches.jsonl", "none yet")
-        program = (ar_dir / "program.md").read_text()
-
+        # Build guardrail message if needed
         guardrail_msg = ""
         if state["discard_streak"] >= DISCARD_STREAK_WARN:
             guardrail_msg = (
@@ -416,13 +425,6 @@ async def main():
                 f"You MUST explain why your approach differs from recent failures, "
                 f"OR recommend a strategy pivot."
             )
-
-        round_context = (
-            f"Research directions:\n{program}\n\n"
-            f"Recent experiments (last {LOG_TAIL_SIZE}):\n{log_tail}\n\n"
-            f"Findings:\n{findings}\n\n"
-            f"Branch registry:\n{branches}"
-        )
 
         # Launch parallel workers
         tasks = []
@@ -438,11 +440,13 @@ async def main():
                 f"Run experiment {exp_num} (ID: {exp_id}).\n"
                 f"Worker directory: {wdir}\n"
                 f"Autoresearch directory: {ar_dir}\n"
-                f"Eval script: bash {ar_dir}/eval.sh {wdir}\n"
+                f"Eval command: bash {ar_dir}/eval.sh {wdir}\n"
                 f"Active branch: {state['active_branch']}\n"
                 f"Current best score: {state['best_score']}\n"
                 f"{guardrail_msg}\n\n"
-                f"{round_context}\n\n"
+                f"Read {ar_dir}/program.md for research directions and editable files.\n"
+                f"Read {ar_dir}/log.jsonl (last 10 lines) for recent experiment history.\n"
+                f"Read {ar_dir}/findings.md for summary of what's been tried.\n\n"
                 f"CRITICAL: Write '{exp_id}' to {wdir}/experiment_id_output.txt as your LAST action."
             )
 
