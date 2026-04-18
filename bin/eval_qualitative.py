@@ -3,24 +3,18 @@
 
 Usage: eval_qualitative.py <worker_dir> <autoresearch_dir>
 
-Reads the rubric from program.md, reads editable files from worker dir,
-calls Claude to evaluate against hard/soft gates. Prints score to stdout.
-
-Hard gates: fail any → score 0.
-Soft gates: each pass → +1. Final score = count of soft gates passed.
+Uses Claude Code (via Agent SDK) to evaluate documents against hard/soft gates.
+No API key needed — uses Claude Code's own auth.
 """
 
+import asyncio
 import json
 import os
 import re
 import sys
 from pathlib import Path
 
-try:
-    import anthropic
-except ImportError:
-    print("ERROR: pip install anthropic", file=sys.stderr)
-    sys.exit(1)
+from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
 
 
 def parse_section(text: str, heading: str) -> str:
@@ -35,6 +29,28 @@ def parse_editable_files(text: str) -> list[str]:
     return [l.strip().lstrip("- ") for l in section.splitlines() if l.strip()]
 
 
+JUDGE_MODEL = os.environ.get("AUTORESEARCH_JUDGE_MODEL", os.environ.get("AUTORESEARCH_MODEL", None))
+
+
+async def run_judge(prompt: str) -> str:
+    result_text = ""
+    opts = ClaudeAgentOptions(
+        system_prompt="You are a strict evaluator. Respond ONLY with JSON. No other text.",
+        permission_mode="bypassPermissions",
+        max_turns=1,
+        extra_args={"no-session-persistence": None},
+    )
+    if JUDGE_MODEL:
+        opts.model = JUDGE_MODEL
+    async for msg in query(
+        prompt=prompt,
+        options=opts,
+    ):
+        if isinstance(msg, ResultMessage):
+            result_text = msg.result or ""
+    return result_text
+
+
 def main():
     if len(sys.argv) < 3:
         print("Usage: eval_qualitative.py <worker_dir> <autoresearch_dir>", file=sys.stderr)
@@ -42,11 +58,6 @@ def main():
 
     worker_dir = Path(sys.argv[1])
     ar_dir = Path(sys.argv[2])
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        print("ERROR: ANTHROPIC_API_KEY not set", file=sys.stderr)
-        sys.exit(1)
 
     program_text = (ar_dir / "program.md").read_text()
     rubric = parse_section(program_text, "Rubric")
@@ -60,7 +71,6 @@ def main():
         print("ERROR: No editable files in program.md", file=sys.stderr)
         sys.exit(1)
 
-    # Read document content from worker dir
     parts = []
     for f in editable_files:
         p = worker_dir / f
@@ -80,7 +90,6 @@ RUBRIC:
 DOCUMENT:
 {document}
 
-INSTRUCTIONS:
 For each gate in the rubric, output pass or fail with a one-sentence reason.
 If a gate is marked "hard", failing it means final score = 0 regardless of other gates.
 For soft gates, count passes. Final score = number of soft gates passed.
@@ -98,25 +107,18 @@ Respond ONLY with JSON:
 If any hard gate failed, final_score MUST be 0.
 Otherwise final_score = soft_gates_passed."""
 
-    model = os.environ.get("AUTORESEARCH_JUDGE_MODEL", "claude-sonnet-4-5-20250929")
-    client = anthropic.Anthropic(api_key=api_key)
+    response = asyncio.run(run_judge(prompt))
 
     try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = response.content[0].text.strip()
-
         # Strip markdown code blocks if present
+        text = response.strip()
         if text.startswith("```"):
             text = re.sub(r"^```\w*\n?", "", text)
             text = re.sub(r"\n?```$", "", text)
 
         result = json.loads(text)
 
-        # Enforce hard gate logic (don't trust the LLM's arithmetic)
+        # Enforce hard gate logic ourselves
         hard_failed = False
         soft_passed = 0
         for gate_name, gate in result.get("gates", {}).items():
@@ -127,7 +129,6 @@ Otherwise final_score = soft_gates_passed."""
 
         final_score = 0 if hard_failed else soft_passed
 
-        # Save detailed results
         result["final_score"] = final_score
         result["hard_gate_failed"] = hard_failed
         result["soft_gates_passed"] = soft_passed

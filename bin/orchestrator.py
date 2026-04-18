@@ -37,13 +37,7 @@ def preflight():
             "  Install: pip install claude-agent-sdk"
         )
 
-    # API key
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        errors.append(
-            "ANTHROPIC_API_KEY not set.\n"
-            "  Get one at: https://console.anthropic.com/settings/keys\n"
-            "  Then: export ANTHROPIC_API_KEY=sk-ant-api03-..."
-        )
+    # No API key needed — everything runs through Claude Code via the Agent SDK.
 
     # Prompt templates
     prompts_dir = Path(__file__).parent.parent / "prompts"
@@ -614,14 +608,26 @@ async def main():
             # Read parent from worker (the experiment writes it) or use the state default
             parent = read_or(wdir / "latest_parent.txt", str(parent_exp)).strip()
 
-            append_log(ar_dir, {
+            # Capture judge gate details if available (qualitative mode)
+            eval_scores = None
+            eval_scores_path = wdir / "eval_scores.json"
+            if eval_scores_path.exists():
+                try:
+                    eval_scores = json.loads(eval_scores_path.read_text())
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+            log_entry = {
                 "experiment_id": exp_num, "branch": state["active_branch"],
                 "parent": parent, "worker": i,
                 "status": "keep" if improved else "discard",
                 "hypothesis": hypothesis, "diff": diff_text,
                 "score": worker_score, "best_score_at_time": state["best_score"],
                 "improved": improved,
-            })
+            }
+            if eval_scores:
+                log_entry["eval_scores"] = eval_scores
+            append_log(ar_dir, log_entry)
 
             if improved:
                 round_had_improvement = True
