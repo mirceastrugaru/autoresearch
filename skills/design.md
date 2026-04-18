@@ -89,12 +89,26 @@ Briefly summarize what you set up (goal, metric, files, directions). Then ask:
 
 **"Ready to start? How many rounds? (default: 10, that's 30 experiments)"**
 
-When they confirm, run the orchestrator. Use the Bash tool with `run_in_background` so it doesn't block the session:
+When they confirm, run the orchestrator directly using the Bash tool (NOT in background — you want to see the output):
 
 ```bash
 ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY python3.13 /Users/mircea/Desktop/Projects/autoresearch/bin/orchestrator.py <rounds> .
 ```
 
+Set the timeout to 600000 (10 minutes) since this takes a while.
+
 If `ANTHROPIC_API_KEY` is not in the environment, ask the human for it before running. Do not tell them to run it themselves — you run it.
 
-Tell the human: "Orchestrator is running in the background. You'll be notified when it finishes. You can keep working in this session. When it's done, use /autoresearch:review to see results."
+While it runs, the output streams back to you. After each round completes, relay the key info to the human:
+- Which round just finished
+- What scores the workers got
+- Which worker was promoted (or if no improvement)
+- Current best score
+
+When the orchestrator finishes, immediately present the results — read `autoresearch/log.jsonl` and `autoresearch/best_score.txt` and show:
+- Starting score vs final score
+- Total improvement
+- List of kept experiments with hypotheses
+- The best code is in `autoresearch/best/`
+
+Do NOT tell them to run `/autoresearch:review`. You ARE the review. Show them the results right here.
