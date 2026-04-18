@@ -37,6 +37,16 @@ python3.13 /path/to/autoresearch-skills/bin/orchestrator.py 10 . <initiative-nam
 python3.13 /path/to/autoresearch-skills/bin/orchestrator.py --help
 ```
 
+### Monitor
+
+Watch runs in real-time in your browser:
+
+```bash
+python3 /path/to/autoresearch-skills/bin/monitor.py <project_dir> <initiative_name> --port 8082
+```
+
+Shows worker status, hypotheses, experiment log, and a viewer for the best document. Uses SSE for live updates — no page refresh needed.
+
 ## Architecture
 
 ```
