@@ -25,6 +25,25 @@ export function useRunState(sessionId: string | null, isRunning: boolean) {
     getActivity(sessionId).then(d => setActivity(d.items)).catch(() => {})
   }, [sessionId])
 
+  // Poll worker snapshot every 3s while running
+  useEffect(() => {
+    if (!sessionId || !isRunning) return
+    const interval = setInterval(() => {
+      getWorkers(sessionId).then(d => {
+        setWorkers(d.workers)
+        setRound(d.round)
+        setTension(d.tension)
+        setCost(d.cost)
+        setTokens(d.tokens)
+        setStallStreak(d.stallStreak)
+      }).catch(() => {})
+      getActivity(sessionId).then(d => {
+        if (d.items.length > 0) setActivity(d.items)
+      }).catch(() => {})
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [sessionId, isRunning])
+
   useEffect(() => {
     if (!sessionId || !isRunning) return
     const close = openStream(sessionId, (type, data) => {
