@@ -74,7 +74,6 @@ from claude_agent_sdk import (
 from bin.program_parser import (
     parse_editable_files,
     read_eval_mode,
-    read_parallelism,
     read_direction,
     read_strategy,
     validate_rubric,
@@ -97,10 +96,13 @@ DISCARD_STREAK_PIVOT = 5
 PLATEAU_THRESHOLD = 8
 REVALIDATE_EVERY = 10
 NOISE_THRESHOLD = 0.01
-WORKER_TIMEOUT_SEC = int(os.environ.get("AUTORESEARCH_WORKER_TIMEOUT", "900"))  # 15 min default
-MERGE_TIMEOUT_SEC = int(os.environ.get("AUTORESEARCH_MERGE_TIMEOUT", "300"))  # 5 min default
+WORKER_TIMEOUT_SEC = int(os.environ.get("AUTORESEARCH_WORKER_TIMEOUT", "900"))
+MERGE_TIMEOUT_SEC = int(os.environ.get("AUTORESEARCH_MERGE_TIMEOUT", "300"))
 RUNAWAY_TURN_THRESHOLD = int(os.environ.get("AUTORESEARCH_RUNAWAY_TURNS", "15"))
-LOG_BLOAT_THRESHOLD_BYTES = int(os.environ.get("AUTORESEARCH_LOG_BLOAT_BYTES", "51200"))  # 50KB
+LOG_BLOAT_THRESHOLD_BYTES = int(os.environ.get("AUTORESEARCH_LOG_BLOAT_BYTES", "51200"))
+DEFAULT_PARALLELISM = int(os.environ.get("AUTORESEARCH_PARALLELISM", "2"))
+MAX_WRITEUP_WORDS = os.environ.get("AUTORESEARCH_MAX_WRITEUP_WORDS", "")
+MAX_PROPOSALS = os.environ.get("AUTORESEARCH_MAX_PROPOSALS", "")
 TRACE_TOOL_RESULT_CAP = 4000
 TRACE_MESSAGE_HARD_CEILING = 50_000
 
@@ -669,15 +671,21 @@ async def main():
     parser.add_argument("initiative", nargs="?", default=None,
                         help="Initiative name under autoresearch/ (default: auto-detect)")
     parser.add_argument("--workers", type=int, default=None,
-                        help="Override parallelism from program.md")
+                        help=f"Number of parallel workers (default: {DEFAULT_PARALLELISM}, env: AUTORESEARCH_PARALLELISM)")
     parser.add_argument("--max-cost", type=float, default=None,
                         help="Stop when total API cost exceeds this amount (USD)")
+    parser.add_argument("--max-writeup-words", type=int, default=None,
+                        help="Max words per worker writeup (env: AUTORESEARCH_MAX_WRITEUP_WORDS)")
+    parser.add_argument("--max-proposals", type=int, default=None,
+                        help="Max new directions per worker (env: AUTORESEARCH_MAX_PROPOSALS)")
     args = parser.parse_args()
 
     max_rounds = args.rounds
     project_dir = Path(args.project_dir).resolve() if args.project_dir else Path.cwd()
     initiative_name = args.initiative
     workers_override = args.workers
+    max_writeup_words = args.max_writeup_words or (int(MAX_WRITEUP_WORDS) if MAX_WRITEUP_WORDS else None)
+    max_proposals = args.max_proposals or (int(MAX_PROPOSALS) if MAX_PROPOSALS else None)
     max_cost = args.max_cost
 
     # Find or select the initiative
@@ -737,7 +745,7 @@ async def main():
         state = read_state(ar_dir)
         state["eval_mode"] = read_eval_mode(ar_dir)
         state["strategy"] = read_strategy(ar_dir)
-        state["parallelism"] = workers_override if workers_override else read_parallelism(ar_dir)
+        state["parallelism"] = workers_override or DEFAULT_PARALLELISM
         state["direction"] = read_direction(ar_dir)
         print(f"  Round: {state['round']} / Experiments: {state['experiment_count']} / Best: {state['best_score']}")
         print(f"  Branch: {state['active_branch']} / Discard streak: {state['discard_streak']}")
@@ -747,7 +755,13 @@ async def main():
     else:
         eval_mode = read_eval_mode(ar_dir)
         strategy = read_strategy(ar_dir)
-        parallelism = workers_override if workers_override else read_parallelism(ar_dir)
+        parallelism = workers_override or DEFAULT_PARALLELISM
+        if parallelism < 2:
+            print("ERROR: Parallelism must be at least 2 (1 supportive + 1 adversarial).")
+            sys.exit(1)
+        if parallelism % 2 != 0:
+            print(f"ERROR: Parallelism must be even (got {parallelism}).")
+            sys.exit(1)
         direction = read_direction(ar_dir)
 
         # Warn about unusual combinations, but allow override.
@@ -972,6 +986,12 @@ async def main():
                     f"Tag your roadmap_append.md proposals with parent: {assigned_direction_id}"
                 )
 
+            constraints = ""
+            if max_writeup_words:
+                constraints += f"\nCONSTRAINT: writeup.md must be {max_writeup_words} words or fewer."
+            if max_proposals:
+                constraints += f"\nCONSTRAINT: roadmap_append.md must contain at most {max_proposals} new direction(s)."
+
             user_msg = (
                 f"Run experiment {exp_num} (ID: {exp_id}).\n"
                 f"Worker {i}/{parallelism}. Stance: {stance.upper()}\n"
@@ -983,6 +1003,7 @@ async def main():
                 f"Parent experiment: #{parent_exp}\n"
                 f"Time budget: {WORKER_TIMEOUT_SEC}s (hard limit — orchestrator will kill after)\n"
                 f"{direction_directive}"
+                f"{constraints}"
                 f"{guardrail_msg}\n\n"
                 f"All context (program.md, findings.md, log, roadmap, current main document) is in your system prompt.\n"
                 f"Write new direction proposals to {wdir}/roadmap_append.md.\n"

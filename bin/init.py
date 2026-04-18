@@ -16,7 +16,6 @@ from bin.program_parser import (
     parse_program_directions,
     read_eval_mode,
     read_or,
-    read_parallelism,
     read_state,
     read_target,
     register_direction,

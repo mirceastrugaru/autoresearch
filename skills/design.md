@@ -80,7 +80,6 @@ Things you figure out yourself (do NOT ask the human):
 - **What files to edit**: for code — look at imports, call graphs. For documents — create the initial document.
 - **What's off limits**: tests, configs, CI, build files, eval infrastructure.
 - **How to measure it**: for code — existing benchmarks or write an eval script. For documents — design a rubric.
-- **Parallelism**: default 2 (1 supportive + 1 adversarial). Must be even.
 - **Rounds**: default 5.
 
 ## Phase 5: Write the config files
@@ -106,9 +105,6 @@ collaborative
 
 ## Direction
 maximize
-
-## Parallelism
-{default 2, must be even}
 
 ## Editable files
 - {file1}
@@ -176,8 +172,10 @@ When they confirm, find the orchestrator script:
 Run it directly using the Bash tool (NOT in background):
 
 ```bash
-/opt/homebrew/bin/python3.13 <orchestrator_path> <rounds> . <name>
+/opt/homebrew/bin/python3.13 <orchestrator_path> <rounds> . <name> --workers <N>
 ```
+
+Optional flags: `--workers <N>` (must be even, default 2), `--max-cost <USD>`, `--max-writeup-words <N>`, `--max-proposals <N>`.
 
 Set the Bash timeout to 600000 (10 minutes).
 
@@ -190,4 +188,3 @@ When the orchestrator finishes, invoke `/autoresearch:review` to present the res
 - **NEVER skip the orchestrator.** Do not do the work yourself.
 - **NEVER skip Phase 5.** You must write program.md, eval.sh, and lockfile.txt before running.
 - **NEVER skip Phase 6.** The iterative loop must run.
-- **Parallelism must be even.** Minimum 2 (1 supportive + 1 adversarial).

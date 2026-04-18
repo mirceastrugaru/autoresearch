@@ -70,7 +70,7 @@ The system is a three-layer loop:
 
 Each initiative lives at `<project>/autoresearch/<name>/`:
 
-- `program.md` — required. Parsed sections: `## Target`, `## Metric`, `## Strategy`, `## Measurement`, `## Direction`, `## Parallelism`, `## Editable files`, `## Directions`, and (qualitative only) `## Rubric`.
+- `program.md` — required. Parsed sections: `## Target`, `## Metric`, `## Strategy`, `## Measurement`, `## Direction`, `## Editable files`, `## Directions`, and (qualitative only) `## Rubric`. Parallelism is no longer in program.md — it's an env var / CLI flag.
 - `eval.sh` — required executable. Quantitative: prints one number. Qualitative: shells to `bin/eval_qualitative.py`.
 - `lockfile.txt` — files workers must not edit. The orchestrator also auto-rejects writes to `eval.sh`, `program.md`, `state.json`, `log.jsonl`, `branches.jsonl`, `best_score.txt`, `lockfile.txt`.
 - State produced by the loop: `state.json`, `log.jsonl` (every experiment), `branches.jsonl`, `best_score.txt`, `best/`, `branches/<branch>/`, `workers/worker-<i>/`, `traces/`, `prompts/<exp_id>.txt`, `findings.md`, `roadmap.md`.
@@ -85,12 +85,15 @@ The LLM judge re-derives `final_score` from the per-gate pass/fail verdicts rath
 
 The judge is split into 4 sequential LLM calls (`judge_score.md`, `judge_synthesize.md`, `judge_roadmap.md`, `judge_meta.md`). Each call has independent error handling — a failure in scoring doesn't prevent document synthesis or roadmap curation.
 
-## Environment variables
+## Environment variables (all have CLI overrides)
 
-- `AUTORESEARCH_MODEL` — worker model (orchestrator default is `claude-haiku-4-5-20251001` per `bin/orchestrator.py:75`; README claims `claude-sonnet-4-6`; code is authoritative).
+- `AUTORESEARCH_MODEL` — worker model (default `claude-haiku-4-5-20251001`).
 - `AUTORESEARCH_JUDGE_MODEL` — qualitative judge model (default `claude-sonnet-4-6`).
+- `AUTORESEARCH_PARALLELISM` — number of parallel workers (default 2, must be even). CLI: `--workers`.
 - `AUTORESEARCH_WORKER_TIMEOUT`, `AUTORESEARCH_MERGE_TIMEOUT` — seconds.
-- `AUTORESEARCH_RUNAWAY_TURNS`, `AUTORESEARCH_LOG_BLOAT_BYTES` — tuning knobs for worker-runaway detection and log-size warnings.
+- `AUTORESEARCH_MAX_WRITEUP_WORDS` — cap writeup length. CLI: `--max-writeup-words`.
+- `AUTORESEARCH_MAX_PROPOSALS` — cap new directions per worker. CLI: `--max-proposals`.
+- `AUTORESEARCH_RUNAWAY_TURNS`, `AUTORESEARCH_LOG_BLOAT_BYTES` — worker-runaway detection and log-size warnings.
 
 ## Invariants worth knowing before editing
 
