@@ -15,6 +15,7 @@ Listen to the answer. Then **shut up and read the code.** Explore the codebase â
 
 After reading the code, present a **complete research plan** in one message:
 
+- A short name for this initiative (slug format, e.g. `sort-optimization`, `api-latency`)
 - Here's what I think we're optimizing
 - Here's how I'll measure it (found this benchmark / I'll write this eval script)
 - Here are the files the agents will edit
@@ -26,6 +27,7 @@ After reading the code, present a **complete research plan** in one message:
 
 Things you figure out BY READING THE CODE (do NOT ask the human):
 
+- **The initiative name**: derive from the goal. Keep it short, lowercase, hyphenated.
 - **What files to edit**: Look at imports, call graphs, the directory structure.
 - **What's off limits**: Tests, configs, CI, build files, lockfiles. Obvious from the project structure.
 - **How to measure it**: Look for existing benchmarks, test scripts, Makefiles. If none exist, write an eval script yourself.
@@ -36,9 +38,9 @@ Things you figure out BY READING THE CODE (do NOT ask the human):
 
 ## Phase 2: Write the config files
 
-Create `autoresearch/` in the current working directory with:
+Each initiative gets its own directory under `autoresearch/`. Create `autoresearch/<name>/` with:
 
-### autoresearch/program.md
+### autoresearch/<name>/program.md
 
 ```markdown
 # Research Program
@@ -65,13 +67,13 @@ Create `autoresearch/` in the current working directory with:
 
 If qualitative, add a `## Rubric` section with criteria, weights, and scale.
 
-### autoresearch/eval.sh
+### autoresearch/<name>/eval.sh
 
 For quantitative: an executable bash script that accepts a directory argument (`$1`) and prints one number to stdout. Build from existing benchmarks if possible. Make it executable.
 
 For qualitative: a placeholder that errors (the orchestrator handles qualitative eval differently).
 
-### autoresearch/lockfile.txt
+### autoresearch/<name>/lockfile.txt
 
 Files the agents must not edit, one per line.
 
@@ -80,16 +82,15 @@ Files the agents must not edit, one per line.
 After writing the files, ask: **"Ready to start? How many rounds? (default: 10, that's 30 experiments)"**
 
 When they confirm, find the orchestrator script. Search for it:
-1. Check if `autoresearch` plugin is installed: look for `bin/orchestrator.py` relative to the plugin install path
-2. Common locations: `~/Desktop/Projects/autoresearch/bin/orchestrator.py`, `~/autoresearch/bin/orchestrator.py`
-3. Search: `find ~ -path "*/autoresearch/bin/orchestrator.py" -maxdepth 4 2>/dev/null | head -1`
+1. Common locations: `~/Desktop/Projects/autoresearch/bin/orchestrator.py`, `~/autoresearch/bin/orchestrator.py`
+2. Search: `find ~ -path "*/autoresearch/bin/orchestrator.py" -maxdepth 4 2>/dev/null | head -1`
 
 If `ANTHROPIC_API_KEY` is not in the environment, ask the human for it before running.
 
 Run it directly using the Bash tool (NOT in background â€” you need to see the output):
 
 ```bash
-ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY python3.13 <orchestrator_path> <rounds> .
+ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY python3.13 <orchestrator_path> <rounds> . <name>
 ```
 
 Set the Bash timeout to 600000 (10 minutes).

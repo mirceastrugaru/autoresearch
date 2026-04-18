@@ -51,33 +51,7 @@ def preflight():
         if not (prompts_dir / name).exists():
             errors.append(f"Missing prompt template: {prompts_dir / name}")
 
-    # Project config (only if a project dir is specified)
-    project_dir = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else Path.cwd()
-    ar_dir = project_dir / "autoresearch"
-    state_file = ar_dir / "state.json"
-
-    if not state_file.exists():
-        # Fresh run — need config files
-        if not (ar_dir / "program.md").exists():
-            errors.append(
-                f"No autoresearch/program.md found in {project_dir}.\n"
-                f"  Run /autoresearch:design in Claude Code first, or create it manually.\n"
-                f"  See README.md for the format."
-            )
-        elif not (ar_dir / "eval.sh").exists():
-            eval_mode = "quantitative"
-            try:
-                text = (ar_dir / "program.md").read_text()
-                m = re.search(r"## Mode\s*\n(\w+)", text)
-                if m:
-                    eval_mode = m.group(1)
-            except Exception:
-                pass
-            if eval_mode == "quantitative":
-                errors.append(
-                    f"No autoresearch/eval.sh found in {project_dir}.\n"
-                    f"  Run /autoresearch:design in Claude Code first, or create it manually."
-                )
+    # Project config — skip detailed checks here, main() handles initiative discovery
 
     if errors:
         print("PREFLIGHT FAILED:\n")
@@ -325,11 +299,13 @@ def revalidate_best(ar_dir: Path, state: dict):
 
 async def main():
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
-        print("Usage: orchestrator.py [rounds] [project-dir]")
+        print("Usage: orchestrator.py [rounds] [project-dir] [initiative-name]")
         print()
-        print("  rounds       Number of experiment rounds (default: 10)")
-        print("               Each round runs N parallel experiments (default N=3)")
-        print("  project-dir  Path to project with autoresearch/ config (default: cwd)")
+        print("  rounds           Number of experiment rounds (default: 10)")
+        print("                   Each round runs N parallel experiments (default N=3)")
+        print("  project-dir      Path to project with autoresearch/ config (default: cwd)")
+        print("  initiative-name  Name of the research initiative (default: auto-detect)")
+        print("                   Each initiative lives in autoresearch/<name>/")
         print()
         print("Environment:")
         print("  ANTHROPIC_API_KEY     Required. Get from console.anthropic.com/settings/keys")
@@ -340,7 +316,43 @@ async def main():
 
     max_rounds = int(sys.argv[1]) if len(sys.argv) > 1 else 10
     project_dir = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else Path.cwd()
-    ar_dir = project_dir / "autoresearch"
+    initiative_name = sys.argv[3] if len(sys.argv) > 3 else None
+
+    # Find or select the initiative
+    ar_base = project_dir / "autoresearch"
+    if initiative_name:
+        ar_dir = ar_base / initiative_name
+    else:
+        # Auto-detect: find initiatives with program.md
+        if ar_base.exists():
+            initiatives = [
+                d.name for d in ar_base.iterdir()
+                if d.is_dir() and (d / "program.md").exists()
+            ]
+        else:
+            initiatives = []
+
+        if len(initiatives) == 1:
+            initiative_name = initiatives[0]
+            ar_dir = ar_base / initiative_name
+        elif len(initiatives) > 1:
+            print(f"Multiple initiatives found in {ar_base}:")
+            for name in sorted(initiatives):
+                score = read_or(ar_base / name / "best_score.txt", "no score").strip()
+                print(f"  {name}  (best: {score})")
+            print(f"\nSpecify one: orchestrator.py {max_rounds} {project_dir} <name>")
+            sys.exit(1)
+        else:
+            # Check for legacy flat autoresearch/ layout (program.md directly in autoresearch/)
+            if ar_base.exists() and (ar_base / "program.md").exists():
+                print(f"Found legacy autoresearch/ layout (no named initiative).")
+                print(f"Migrate by moving files into autoresearch/<name>/")
+                ar_dir = ar_base  # backward compat
+                initiative_name = "default"
+            else:
+                print(f"No initiatives found in {ar_base}/")
+                print(f"Run /autoresearch:design in Claude Code first.")
+                sys.exit(1)
 
     # Load skill texts
     prompts_dir = Path(__file__).parent.parent / "prompts"
@@ -350,6 +362,7 @@ async def main():
 
     print("=== AUTORESEARCH ORCHESTRATOR ===")
     print(f"Project: {project_dir}")
+    print(f"Initiative: {initiative_name}")
     print(f"Model: {MODEL}")
     print(f"Max rounds: {max_rounds}")
 
