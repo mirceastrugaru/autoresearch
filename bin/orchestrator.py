@@ -72,7 +72,7 @@ from claude_agent_sdk import (
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-MODEL = os.environ.get("AUTORESEARCH_MODEL", "claude-sonnet-4-6")
+MODEL = os.environ.get("AUTORESEARCH_MODEL", "claude-haiku-4-5-20251001")
 SUMMARIZE_EVERY = 5
 DISCARD_STREAK_WARN = 3
 DISCARD_STREAK_PIVOT = 5
@@ -869,6 +869,7 @@ async def main():
 
     round_num = state["round"]
     total_cost = 0.0
+    pending_merge: "asyncio.Task | None" = None  # collaborative merge running concurrently with next round's workers
 
     while round_num < max_rounds:
         round_num += 1
@@ -1077,6 +1078,39 @@ async def main():
         round_timing["workers_ms"] = int(elapsed * 1000)
         print(f"  All workers done. ({elapsed:.1f}s)")
 
+        # Resolve previous round's background merge (if any) before processing results.
+        # The merge updates best/ — results below compare against best/, so it must land first.
+        if pending_merge is not None:
+            print(f"  [awaiting background merge from previous round...]")
+            t_merge_wait = time.time()
+            merge_output, merge_ms = await pending_merge
+            round_timing["merge_ms"] = merge_ms
+            pending_merge = None
+            print(f"  [merge resolved in {int((time.time() - t_merge_wait) * 1000)}ms additional wait]")
+            print(f"  {merge_output[:200]}")
+            dlog(ar_dir, "merge_output", round=_pending_merge_round,
+                 output=merge_output, trace_path=str(_pending_merge_trace))
+            hashes_after = _pending_merge_hash_best_fn()
+            unchanged = [f for f in _pending_merge_hashes_before
+                         if _pending_merge_hashes_before[f] == hashes_after.get(f)]
+            if unchanged:
+                print(f"  MERGE WARNING: {len(unchanged)} file(s) not written by merge agent: {unchanged}")
+                dlog(ar_dir, "merge_no_write", files=unchanged)
+                best_i, best_s, _, best_exp, best_snapshots = max(_pending_merge_passing, key=lambda x: x[1])
+                print(f"  Falling back to worker-{best_i} (exp #{best_exp}, score {best_s}) verbatim.")
+                for f in unchanged:
+                    content = best_snapshots.get(f)
+                    if content is not None:
+                        for dest_base in [ar_dir / "best", ar_dir / "branches" / _pending_merge_branch]:
+                            dest = dest_base / f
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            dest.write_bytes(content)
+                dlog(ar_dir, "merge_fallback", fallback_worker=best_i, fallback_exp=best_exp)
+            dlog(ar_dir, "collaborative_merge_done",
+                 passing_workers=[i for i, _, _, _, _ in _pending_merge_passing],
+                 merged_parents=[exp_num for _, _, _, exp_num, _ in _pending_merge_passing],
+                 new_best=max(s for _, s, _, _, _ in _pending_merge_passing))
+
         # Track costs and token usage
         round_input_tokens = 0
         round_output_tokens = 0
@@ -1264,11 +1298,17 @@ async def main():
                     wscore = 0.0
                 summary = read_or(wdir / "summary.txt", "").strip()
                 if passed_hard_gates(wdir, wscore):
-                    passing.append((i, wscore, summary, exp_num))
+                    # Snapshot editable files now — worker dirs are cleaned up before merge resolves
+                    worker_file_snapshots = {}
+                    for f in parse_editable_files(ar_dir):
+                        p = wdir / f
+                        if p.exists():
+                            worker_file_snapshots[f] = p.read_bytes()
+                    passing.append((i, wscore, summary, exp_num, worker_file_snapshots))
 
             if passing:
-                best_passing_score = max(s for _, s, _, _ in passing)
-                passing_nums = [i for i, _, _, _ in passing]
+                best_passing_score = max(s for _, s, _, _, _ in passing)
+                passing_nums = [i for i, _, _, _, _ in passing]
                 print(f"\n  COLLABORATIVE MERGE: {len(passing)} workers passed hard gates {passing_nums}")
                 dlog(ar_dir, "collaborative_merge_start", passing_workers=passing_nums,
                      best_score=best_passing_score)
@@ -1281,7 +1321,7 @@ async def main():
                     base_docs.append(f"=== BASE: {f} ===\n{read_or(p, '[not found]')}")
 
                 worker_docs = []
-                for i, wscore, wsummary, wexp in passing:
+                for i, wscore, wsummary, wexp, _ in passing:
                     wdir = ar_dir / "workers" / f"worker-{i}"
                     parts = [f"--- Worker {i} (score={wscore:.2f}, exp=#{wexp}) ---"]
                     parts.append(f"Summary: {wsummary}")
@@ -1311,49 +1351,44 @@ async def main():
 
                 hashes_before = _hash_best()
                 merge_trace = ar_dir / "traces" / f"merge-round-{round_num}.jsonl"
-                t_merge = time.time()
-                merge_output, _ = await run_agent(
-                    system_prompt=merge_skill,
-                    user_prompt=merge_user_msg,
-                    cwd=ar_dir,
-                    name="merge",
-                    trace_path=merge_trace,
-                )
-                round_timing["merge_ms"] = int((time.time() - t_merge) * 1000)
-                print(f"  {merge_output[:200]}")
-                dlog(ar_dir, "merge_output", round=round_num,
-                     output=merge_output, trace_path=str(merge_trace))
-                hashes_after = _hash_best()
-                unchanged = [f for f in hashes_before if hashes_before[f] == hashes_after.get(f)]
-                if unchanged:
-                    print(f"  MERGE WARNING: {len(unchanged)} file(s) not written by merge agent: {unchanged}")
-                    dlog(ar_dir, "merge_no_write", files=unchanged)
-                    # Fall back: copy the highest-scoring passing worker's files into best/.
-                    best_i, best_s, _, best_exp = max(passing, key=lambda x: x[1])
-                    print(f"  Falling back to worker-{best_i} (exp #{best_exp}, score {best_s}) verbatim.")
-                    wdir_fallback = ar_dir / "workers" / f"worker-{best_i}"
-                    for f in unchanged:
-                        src = wdir_fallback / f
-                        if src.exists():
-                            for dest_base in [ar_dir / "best", ar_dir / "branches" / state["active_branch"]]:
-                                dest = dest_base / f
-                                dest.parent.mkdir(parents=True, exist_ok=True)
-                                shutil.copy2(src, dest)
-                    dlog(ar_dir, "merge_fallback", fallback_worker=best_i, fallback_exp=best_exp)
+                _merge_round = round_num  # capture for closure
+                _merge_trace = merge_trace
+                _hashes_before = hashes_before
+                _hash_best_fn = _hash_best
+
+                async def _run_merge(system_prompt=merge_skill, user_prompt=merge_user_msg,
+                                     cwd=ar_dir, trace=merge_trace):
+                    t = time.time()
+                    out, _ = await run_agent(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        cwd=cwd,
+                        name="merge",
+                        trace_path=trace,
+                    )
+                    return out, int((time.time() - t) * 1000)
+
+                # Store passing workers for fallback (needed when merge resolves)
+                _pending_merge_passing = passing
+                _pending_merge_hashes_before = hashes_before
+                _pending_merge_branch = state["active_branch"]
+                _pending_merge_round = round_num
+                _pending_merge_trace = merge_trace
+                _pending_merge_hash_best_fn = _hash_best
+
+                pending_merge = asyncio.get_event_loop().create_task(_run_merge())
+                print(f"  [merge launched in background — will resolve before next round's results]")
 
                 state["best_score"] = best_passing_score
                 # Collaborative: merged baseline has multiple parents. Track as a list
                 # so genealogy tools can show the real structure instead of picking one.
-                merged_parents = [exp_num for _, _, _, exp_num in passing]
+                merged_parents = [exp_num for _, _, _, exp_num, _ in passing]
                 state["last_promoted_experiment"] = merged_parents[0]  # back-compat scalar
                 state["last_promoted_experiments"] = merged_parents
                 (ar_dir / "best_score.txt").write_text(f"{best_passing_score}\n")
                 state["discard_streak"] = 0
                 state["best_unchanged_count"] = 0
-                dlog(ar_dir, "collaborative_merge_done",
-                     passing_workers=passing_nums,
-                     merged_parents=merged_parents,
-                     new_best=best_passing_score)
+                # collaborative_merge_done is logged when merge resolves (see await block above)
             else:
                 state["discard_streak"] += 1
                 state["best_unchanged_count"] += parallelism
@@ -1439,6 +1474,32 @@ async def main():
             + round_timing.get("summarize_ms", 0)
         )
         dlog(ar_dir, "round_timing", round=round_num, **round_timing)
+
+    # Resolve any merge that was running during the final round's workers
+    if pending_merge is not None:
+        print(f"\n[awaiting final background merge...]")
+        merge_output, merge_ms = await pending_merge
+        print(f"  {merge_output[:200]}")
+        dlog(ar_dir, "merge_output", round=_pending_merge_round,
+             output=merge_output, trace_path=str(_pending_merge_trace))
+        hashes_after = _pending_merge_hash_best_fn()
+        unchanged = [f for f in _pending_merge_hashes_before
+                     if _pending_merge_hashes_before[f] == hashes_after.get(f)]
+        if unchanged:
+            dlog(ar_dir, "merge_no_write", files=unchanged)
+            best_i, best_s, _, best_exp, best_snapshots = max(_pending_merge_passing, key=lambda x: x[1])
+            for f in unchanged:
+                content = best_snapshots.get(f)
+                if content is not None:
+                    for dest_base in [ar_dir / "best", ar_dir / "branches" / _pending_merge_branch]:
+                        dest = dest_base / f
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        dest.write_bytes(content)
+            dlog(ar_dir, "merge_fallback", fallback_worker=best_i, fallback_exp=best_exp)
+        dlog(ar_dir, "collaborative_merge_done",
+             passing_workers=[i for i, _, _, _, _ in _pending_merge_passing],
+             merged_parents=[exp_num for _, _, _, exp_num, _ in _pending_merge_passing],
+             new_best=max(s for _, s, _, _, _ in _pending_merge_passing))
 
     print(f"\n=== AUTORESEARCH COMPLETE ===")
     print(f"Ran {round_num} rounds ({state['experiment_count']} experiments). Best: {state['best_score']:.2f}")
