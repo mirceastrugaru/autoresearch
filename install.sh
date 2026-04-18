@@ -65,11 +65,7 @@ if [ -z "$ANTHROPIC_API_KEY" ]; then
   echo "    export ANTHROPIC_API_KEY=sk-ant-api03-..."
 fi
 
-# Find the install path
-INSTALL_PATH=$(claude plugins list 2>&1 | grep -A1 autoresearch | grep installPath | sed 's/.*: //' || echo "")
-if [ -z "$INSTALL_PATH" ]; then
-  INSTALL_PATH="(run 'claude plugins list' to find the install path)"
-fi
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo ""
 echo "Done. Restart Claude Code to load the plugin."
@@ -79,8 +75,4 @@ echo "  /autoresearch:design   — set up a new research project"
 echo "  /autoresearch:review   — review experiment results"
 echo ""
 echo "To run experiments:"
-if [ -n "$PYTHON_CMD" ]; then
-  echo "  ANTHROPIC_API_KEY=sk-... $PYTHON_CMD $INSTALL_PATH/bin/orchestrator.py <rounds> <project-dir>"
-else
-  echo "  ANTHROPIC_API_KEY=sk-... python3.13 <install-path>/bin/orchestrator.py <rounds> <project-dir>"
-fi
+echo "  ANTHROPIC_API_KEY=sk-... ${PYTHON_CMD:-python3.13} $SCRIPT_DIR/bin/orchestrator.py <rounds> <project-dir>"
