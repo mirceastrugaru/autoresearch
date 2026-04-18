@@ -29,7 +29,7 @@ Determine both for the human's goal before proceeding.
 
 **FIRST ACTION: Ask "What's your research goal?" — do this before reading any files, before any analysis, before anything else.**
 
-Any goal is valid — code optimization, research questions, documents, arguments, personal habits, business analysis, anything. Figure out the project type:
+Any goal is valid. Figure out the project type:
 
 **If the goal involves code**: Read the codebase — understand the structure, find what's relevant, look for existing tests and benchmarks.
 
