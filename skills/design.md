@@ -53,7 +53,7 @@ Keep it bounded — 5 minutes of work max. This is setup, not execution. The loo
 
 ## Phase 4: Propose the agenda
 
-Present a list of broad initial directions to investigate. Do NOT pre-decompose into specific sub-vectors — the workers will discover specific angles during research and propose them via the roadmap.
+Present a list of broad initial directions to investigate. Do NOT pre-decompose into specific sub-directions — the workers will discover specific angles during research and propose them via the roadmap.
 
 Derive directions from the goal itself. If the goal is a thesis with claims, each claim is a direction. If the goal is analysis, each major area of concern is a direction. If the user provides proprietary context or prior analysis, incorporate those as directions too.
 

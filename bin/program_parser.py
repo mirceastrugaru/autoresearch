@@ -50,10 +50,10 @@ def read_parallelism(ar_dir: Path) -> int:
     m = re.search(r"## Parallelism\s*\n(\d+)", text)
     n = int(m.group(1)) if m else 2
     if n < 2:
-        print("ERROR: Parallelism must be at least 2 (1 pro + 1 con).")
+        print("ERROR: Parallelism must be at least 2 (1 supportive + 1 adversarial).")
         sys.exit(1)
     if n % 2 != 0:
-        print(f"ERROR: Parallelism must be even (got {n}). Pro/con requires equal split.")
+        print(f"ERROR: Parallelism must be even (got {n}). Supportive/adversarial requires equal split.")
         sys.exit(1)
     return n
 
