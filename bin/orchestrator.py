@@ -80,6 +80,7 @@ from bin.program_parser import (
     validate_rubric,
     parse_roadmap,
     build_coverage_matrix,
+    build_stance_coverage,
     sync_directions_from_roadmap,
     read_or,
     read_state,
@@ -343,13 +344,13 @@ async def run_agent(
 def assign_directions(directions: list[dict], parallelism: int, matrix: dict[str, int]) -> list[dict]:
     """Assign directions to workers. First half supportive, second half adversarial.
     Returns list of {"direction": dict, "stance": "supportive"|"adversarial"} for each worker slot.
-    Pulls least-covered directions first."""
+    Priority (roadmap position) is the primary signal — the judge ordered the roadmap
+    by impact, so we respect that. Coverage is the tiebreaker within the same priority."""
     if not directions:
         return []
 
     half = parallelism // 2
-    # Sort by coverage (least covered first), then by priority (lower = higher priority)
-    sorted_dirs = sorted(directions, key=lambda d: (matrix.get(d["id"], 0), d["priority"]))
+    sorted_dirs = sorted(directions, key=lambda d: (d["priority"], matrix.get(d["id"], 0)))
 
     assignments = []
     for i in range(half):
@@ -806,13 +807,34 @@ async def main():
              experiments=state["experiment_count"], best_score=state["best_score"],
              branch=state["active_branch"], discard_streak=state["discard_streak"])
 
-        # Convergence
-        if state["discard_streak"] >= DISCARD_STREAK_PIVOT:
-            force_pivot(state, ar_dir, project_dir)
-        elif state["best_unchanged_count"] >= PLATEAU_THRESHOLD:
-            force_pivot(state, ar_dir, project_dir)
+        # Convergence — different logic for qualitative vs quantitative
+        if is_qualitative:
+            directions_for_convergence = parse_roadmap(ar_dir)
+            if directions_for_convergence:
+                stance_cov = build_stance_coverage(ar_dir, directions_for_convergence)
+                fully_covered = sum(1 for v in stance_cov.values() if v["supportive"] and v["adversarial"])
+                total_dirs = len(stance_cov)
+                coverage_pct = fully_covered / total_dirs if total_dirs else 0
+                no_new_dirs = state.get("rounds_without_new_directions", 0)
+                print(f"  Coverage: {fully_covered}/{total_dirs} directions fully covered ({coverage_pct:.0%}), "
+                      f"{no_new_dirs} rounds without new directions")
+                dlog(ar_dir, "qualitative_convergence", round=round_num,
+                     fully_covered=fully_covered, total_dirs=total_dirs,
+                     coverage_pct=round(coverage_pct, 3),
+                     rounds_without_new_directions=no_new_dirs)
+                if coverage_pct >= 1.0 and no_new_dirs >= 2:
+                    print(f"\n  CONVERGED: all {total_dirs} directions covered from both stances, "
+                          f"no new directions for {no_new_dirs} rounds. Stopping early.")
+                    dlog(ar_dir, "qualitative_converged", round=round_num,
+                         fully_covered=fully_covered, total_dirs=total_dirs)
+                    break
+        else:
+            if state["discard_streak"] >= DISCARD_STREAK_PIVOT:
+                force_pivot(state, ar_dir, project_dir)
+            elif state["best_unchanged_count"] >= PLATEAU_THRESHOLD:
+                force_pivot(state, ar_dir, project_dir)
 
-        if state["experiment_count"] > 0 and state["experiment_count"] % REVALIDATE_EVERY == 0:
+        if not is_qualitative and state["experiment_count"] > 0 and state["experiment_count"] % REVALIDATE_EVERY == 0:
             revalidate_best(ar_dir, state)
 
         # Round timing
@@ -833,55 +855,56 @@ async def main():
 
         # Build guardrail message if needed
         guardrail_msg = ""
-        if state["discard_streak"] >= DISCARD_STREAK_PIVOT:
-            # Extract recent failed hypotheses from log for concrete stall analysis
-            recent_log = read_full_log(ar_dir)
-            recent_failures = []
-            for line in recent_log.strip().splitlines()[-15:]:
-                try:
-                    entry = json.loads(line)
-                    if entry.get("status") in ("discard", "thought"):
-                        h = entry.get("hypothesis", "")
-                        s = entry.get("score", 0)
-                        if h:
-                            recent_failures.append(f"  - [{entry.get('status')}] score={s}: {h}")
-                except (json.JSONDecodeError, KeyError):
-                    pass
-            failures_text = "\n".join(recent_failures) if recent_failures else "  (none recorded)"
-            guardrail_msg = (
-                f"\nCRITICAL: {state['discard_streak']} consecutive rounds with no improvement. Strategy pivot forced.\n"
-                f"Recent failed/thought experiments:\n{failures_text}\n\n"
-                f"You are on a new branch. You MUST:\n"
-                f"1. Identify what assumption ALL of the above failures share.\n"
-                f"2. INVERT that assumption as your hypothesis — not a minor variant.\n"
-                f"3. Check roadmap.md (provided in system prompt) for untried directions.\n"
-                f"Do NOT try anything resembling the failed experiments above."
-            )
-            dlog(ar_dir, "guardrail_built", round=round_num, trigger="pivot",
-                 discard_streak=state["discard_streak"],
-                 failures=recent_failures, guardrail_text=guardrail_msg)
-        elif state["discard_streak"] >= DISCARD_STREAK_WARN:
-            recent_log = read_full_log(ar_dir)
-            recent_failures = []
-            for line in recent_log.strip().splitlines()[-9:]:
-                try:
-                    entry = json.loads(line)
-                    if entry.get("status") in ("discard", "thought"):
-                        h = entry.get("hypothesis", "")
-                        if h:
-                            recent_failures.append(f"  - {h}")
-                except (json.JSONDecodeError, KeyError):
-                    pass
-            failures_text = "\n".join(recent_failures) if recent_failures else "  (none recorded)"
-            guardrail_msg = (
-                f"\nWARNING: {state['discard_streak']} consecutive rounds with no improvement.\n"
-                f"Recent failed approaches:\n{failures_text}\n"
-                f"Before your next hypothesis, identify what these share. Try inverting that assumption, "
-                f"or pick an untested direction from roadmap.md (provided in system prompt)."
-            )
-            dlog(ar_dir, "guardrail_built", round=round_num, trigger="warn",
-                 discard_streak=state["discard_streak"],
-                 failures=recent_failures, guardrail_text=guardrail_msg)
+        if not is_qualitative:
+            # Quantitative: discard-streak guardrails
+            if state["discard_streak"] >= DISCARD_STREAK_PIVOT:
+                recent_log = read_full_log(ar_dir)
+                recent_failures = []
+                for line in recent_log.strip().splitlines()[-15:]:
+                    try:
+                        entry = json.loads(line)
+                        if entry.get("status") in ("discard", "thought"):
+                            h = entry.get("hypothesis", "")
+                            s = entry.get("score", 0)
+                            if h:
+                                recent_failures.append(f"  - [{entry.get('status')}] score={s}: {h}")
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+                failures_text = "\n".join(recent_failures) if recent_failures else "  (none recorded)"
+                guardrail_msg = (
+                    f"\nCRITICAL: {state['discard_streak']} consecutive rounds with no improvement. Strategy pivot forced.\n"
+                    f"Recent failed/thought experiments:\n{failures_text}\n\n"
+                    f"You are on a new branch. You MUST:\n"
+                    f"1. Identify what assumption ALL of the above failures share.\n"
+                    f"2. INVERT that assumption as your hypothesis — not a minor variant.\n"
+                    f"3. Check roadmap.md (provided in system prompt) for untried directions.\n"
+                    f"Do NOT try anything resembling the failed experiments above."
+                )
+                dlog(ar_dir, "guardrail_built", round=round_num, trigger="pivot",
+                     discard_streak=state["discard_streak"],
+                     failures=recent_failures, guardrail_text=guardrail_msg)
+            elif state["discard_streak"] >= DISCARD_STREAK_WARN:
+                recent_log = read_full_log(ar_dir)
+                recent_failures = []
+                for line in recent_log.strip().splitlines()[-9:]:
+                    try:
+                        entry = json.loads(line)
+                        if entry.get("status") in ("discard", "thought"):
+                            h = entry.get("hypothesis", "")
+                            if h:
+                                recent_failures.append(f"  - {h}")
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+                failures_text = "\n".join(recent_failures) if recent_failures else "  (none recorded)"
+                guardrail_msg = (
+                    f"\nWARNING: {state['discard_streak']} consecutive rounds with no improvement.\n"
+                    f"Recent failed approaches:\n{failures_text}\n"
+                    f"Before your next hypothesis, identify what these share. Try inverting that assumption, "
+                    f"or pick an untested direction from roadmap.md (provided in system prompt)."
+                )
+                dlog(ar_dir, "guardrail_built", round=round_num, trigger="warn",
+                     discard_streak=state["discard_streak"],
+                     failures=recent_failures, guardrail_text=guardrail_msg)
 
         is_collaborative = state.get("strategy", "competitive") == "collaborative"
         is_qualitative = state.get("eval_mode", "quantitative") == "qualitative"
@@ -1226,6 +1249,7 @@ async def main():
                             dest.write_text(content)
 
                     # Write updated roadmap and sync direction registry
+                    prev_direction_count = len(directions)
                     if judge_data.get("roadmap"):
                         (ar_dir / "roadmap.md").write_text(judge_data["roadmap"])
                         updated_directions = parse_roadmap(ar_dir)
@@ -1250,6 +1274,13 @@ async def main():
                             parent_map=parent_map,
                             source=f"round-{round_num}",
                         )
+
+                        # Track whether the judge added new directions (for convergence)
+                        new_direction_count = len(updated_directions)
+                        if new_direction_count > prev_direction_count:
+                            state["rounds_without_new_directions"] = 0
+                        else:
+                            state["rounds_without_new_directions"] = state.get("rounds_without_new_directions", 0) + 1
 
                     # Write meta document
                     if judge_data.get("meta"):

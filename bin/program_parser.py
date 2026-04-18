@@ -328,6 +328,26 @@ def build_coverage_matrix(ar_dir: Path, directions: list[dict]) -> dict[str, int
     return matrix
 
 
+def build_stance_coverage(ar_dir: Path, directions: list[dict]) -> dict[str, dict[str, bool]]:
+    """Build stance-aware coverage: {direction_id: {"supportive": bool, "adversarial": bool}}.
+    A direction is "covered" by a stance if at least one non-crashed worker investigated it."""
+    coverage = {d["id"]: {"supportive": False, "adversarial": False} for d in directions}
+    log_path = ar_dir / "log.jsonl"
+    if not log_path.exists():
+        return coverage
+    for line in log_path.read_text().strip().splitlines():
+        try:
+            entry = json.loads(line)
+            did = entry.get("assigned_direction")
+            stance = entry.get("stance")
+            status = entry.get("status", "")
+            if did and did in coverage and stance in ("supportive", "adversarial") and status not in ("crash", "timeout"):
+                coverage[did][stance] = True
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return coverage
+
+
 # ── State management ────────────────────────────────────────────────────────
 
 

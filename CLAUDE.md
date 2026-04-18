@@ -58,13 +58,13 @@ The system is a three-layer loop:
    - Discovers initiatives under `<project>/autoresearch/<name>/` (program.md presence = initiative).
    - Reads **strategy** (`competitive` | `collaborative`) and **measurement** (`quantitative` | `qualitative`) from `program.md`. Warns but doesn't block on unusual combinations.
    - Each round: spawns N parallel workers via `run_agent()` → `claude_agent_sdk.query` with `permission_mode="bypassPermissions"`. Shared context (`_build_shared_context`) goes into every worker's system prompt so all N workers get cache hits on the same bytes.
-   - Workers have a **stance** (supportive or adversarial). Parallelism must be even (minimum 2): first half supportive, second half adversarial. Each worker is assigned a direction from `roadmap.md` via `parse_roadmap` + `assign_directions`, using a coverage matrix from `log.jsonl` to prioritize least-covered directions. Supportive workers collect evidence consistent with the direction; adversarial workers collect evidence inconsistent with it.
-   - After workers finish: **quantitative** mode computes authoritative diffs from filesystem snapshots, runs `eval.sh`, promotes best (competitive) or merges via merge agent (collaborative). **Qualitative collaborative** mode collects all write-ups and calls the judge (`bin/eval_qualitative.py --judge`) which scores write-ups, synthesizes the next main document, and curates the roadmap — all in one call.
-   - Convergence logic: `DISCARD_STREAK_WARN=3` adds guardrail message, `DISCARD_STREAK_PIVOT=5` forces `force_pivot` (new branch), `PLATEAU_THRESHOLD=8` unchanged-best-count forces pivot, `REVALIDATE_EVERY=10` re-runs eval on current best to detect noise.
+   - Workers have a **stance** (supportive or adversarial). Parallelism must be even (minimum 2): first half supportive, second half adversarial. Each worker is assigned a direction from `roadmap.md` via `parse_roadmap` + `assign_directions`. Assignment uses roadmap position (judge-ranked impact) as the primary sort key, with coverage count as tiebreaker.
+   - After workers finish: **quantitative** mode computes authoritative diffs from filesystem snapshots, runs `eval.sh`, promotes best (competitive) or merges via merge agent (collaborative). **Qualitative collaborative** mode collects all write-ups and calls the judge (`bin/eval_qualitative.py --judge`) which makes 4 sequential LLM calls: (1) score write-ups, (2) synthesize document, (3) curate roadmap, (4) update meta. Each call has independent error handling — a failure in one doesn't kill the others.
+   - Convergence logic differs by mode. **Quantitative**: `DISCARD_STREAK_WARN=3` adds guardrail, `DISCARD_STREAK_PIVOT=5` forces `force_pivot` (new branch), `PLATEAU_THRESHOLD=8` forces pivot, `REVALIDATE_EVERY=10` re-runs eval. **Qualitative**: tracks stance-aware direction coverage (has each direction been investigated by both a supportive and adversarial worker?) and `rounds_without_new_directions`. Converges when all directions are fully covered AND no new directions for 2 rounds — stops early.
    - Timeouts: `AUTORESEARCH_WORKER_TIMEOUT` (default 900s per worker), `AUTORESEARCH_MERGE_TIMEOUT` (300s). Hard-enforced via `asyncio.wait_for`.
    - Everything is traced: `message_to_trace_events` serializes every SDK message (AssistantMessage / UserMessage / ToolUseBlock / ToolResultBlock / ResultMessage) to per-experiment `traces/<exp_id>.jsonl` with bounded sizes (`TRACE_TOOL_RESULT_CAP=4000`, `TRACE_MESSAGE_HARD_CEILING=50000`). Traces survive crashes — line-buffered writes.
 
-3. **Workers** — Claude Agent SDK instances following `prompts/supportive.md` (supportive stance) or `prompts/adversarial.md` (adversarial stance). Headless, one direction per invocation. Produce `hypothesis.txt`, `writeup.md`, `roadmap_append.md` (mandatory — drives direction discovery), `score.txt` (quantitative only), `summary.txt`, `status.txt`, and (last, mandatory) `experiment_id_output.txt`. Missing the final file = instruction-violation = discard.
+3. **Workers** — Claude Agent SDK instances following `prompts/supportive.md` (supportive stance) or `prompts/adversarial.md` (adversarial stance). Headless, one direction per invocation. Produce `hypothesis.txt`, `writeup.md`, `roadmap_append.md` (mandatory — drives direction discovery), `score.txt` (quantitative only), `summary.txt`, and (last, mandatory) `experiment_id_output.txt`. Missing the final file = instruction-violation = discard.
 
 ## Initiative layout
 
@@ -81,7 +81,9 @@ For qualitative initiatives, the parser in `bin/eval_qualitative.py` expects the
 - `Hard gates (fail any = score 0):` followed by `- gate_name: description` lines
 - `Soft gates (each pass = +1 point):` with the same line shape
 
-The LLM judge re-derives `final_score` from the per-gate pass/fail verdicts rather than trusting its own claim (see `eval_qualitative.py:144-157`) — any hard-gate fail zeroes the score regardless of soft gates.
+The LLM judge re-derives `final_score` from the per-gate pass/fail verdicts rather than trusting its own claim (see `_re_derive_scores` in `eval_qualitative.py`) — any hard-gate fail zeroes the score regardless of soft gates.
+
+The judge is split into 4 sequential LLM calls (`judge_score.md`, `judge_synthesize.md`, `judge_roadmap.md`, `judge_meta.md`). Each call has independent error handling — a failure in scoring doesn't prevent document synthesis or roadmap curation.
 
 ## Environment variables
 

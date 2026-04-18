@@ -162,8 +162,41 @@ Respond ONLY with JSON:
 # ── Judge mode (full round judge) ─────────────────────────────────────────
 
 
+def _load_prompt(name: str) -> str:
+    return (Path(__file__).parent.parent / "prompts" / name).read_text()
+
+
+def _call_judge_json(prompt: str, label: str) -> dict | None:
+    """Call the judge LLM and parse JSON response. Retries once on parse failure."""
+    last_err = None
+    last_text = ""
+    for attempt in (1, 2):
+        response = asyncio.run(run_judge(
+            prompt if attempt == 1
+            else prompt + "\n\nYour previous response was not valid JSON. Respond with ONLY the JSON object."
+        ))
+        last_text = response
+        try:
+            return _parse_json(response)
+        except json.JSONDecodeError as e:
+            last_err = e
+            print(f"  {label}: JSON parse attempt {attempt} failed: {e}", file=sys.stderr)
+            continue
+    print(f"  {label}: JSON parse failed after retry: {last_err}", file=sys.stderr)
+    return None
+
+
+def _call_judge_text(prompt: str, label: str) -> str | None:
+    """Call the judge LLM and return raw text response."""
+    response = asyncio.run(run_judge(prompt))
+    if not response.strip():
+        print(f"  {label}: empty response", file=sys.stderr)
+        return None
+    return response.strip()
+
+
 def judge_mode(ar_dir: Path, writeups_json: str, roadmap_proposals: str):
-    """Full judge: score write-ups + synthesize main document + curate roadmap."""
+    """Full judge: 4 sequential calls — score, synthesize, roadmap, meta."""
     program_text = (ar_dir / "program.md").read_text()
     rubric = parse_section(program_text, "Rubric")
     target = parse_section(program_text, "Target")
@@ -173,7 +206,6 @@ def judge_mode(ar_dir: Path, writeups_json: str, roadmap_proposals: str):
         print("ERROR: No ## Rubric in program.md", file=sys.stderr)
         sys.exit(1)
 
-    # Read current main document
     best_dir = ar_dir / "best"
     doc_parts = []
     for f in editable_files:
@@ -184,46 +216,78 @@ def judge_mode(ar_dir: Path, writeups_json: str, roadmap_proposals: str):
             doc_parts.append(f"=== {f} ===\n[EMPTY]")
     current_doc = "\n\n".join(doc_parts)
 
-    # Read current roadmap
     roadmap = ""
     roadmap_path = ar_dir / "roadmap.md"
     if roadmap_path.exists():
         roadmap = roadmap_path.read_text()
 
-    prompt_template_path = Path(__file__).parent.parent / "prompts" / "judge.md"
-    prompt_template = prompt_template_path.read_text()
-    prompt = prompt_template.format(
-        target=target,
-        rubric=rubric,
-        current_doc=current_doc,
-        writeups_json=writeups_json,
-        roadmap=roadmap,
-        roadmap_proposals=roadmap_proposals,
+    current_meta = ""
+    meta_path = ar_dir / "meta.md"
+    if meta_path.exists():
+        current_meta = meta_path.read_text()
+
+    result = {"scores": {}, "documents": {}, "meta": "", "roadmap": ""}
+
+    # ── Call 1: Score write-ups ──
+    score_prompt = _load_prompt("judge_score.md").format(
+        target=target, rubric=rubric, writeups_json=writeups_json,
     )
+    scores = _call_judge_json(score_prompt, "SCORE")
+    if scores:
+        for wid, wscores in scores.items():
+            result["scores"][wid] = _re_derive_scores(wscores)
 
-    result = None
-    last_err = None
-    last_text = ""
-    for attempt in (1, 2):
-        response = asyncio.run(run_judge(
-            prompt if attempt == 1
-            else prompt + "\n\nYour previous response was not valid JSON. Respond with ONLY the JSON object."
-        ))
-        last_text = response
-        try:
-            result = _parse_json(response)
-            break
-        except json.JSONDecodeError as e:
-            last_err = e
-            continue
+    # Build round summary for downstream calls
+    writeups = json.loads(writeups_json)
+    summary_lines = []
+    for wid, wdata in writeups.items():
+        score_info = result["scores"].get(wid, {})
+        s = score_info.get("final_score", "?")
+        hard_fail = score_info.get("hard_gate_failed", False)
+        summary_lines.append(
+            f"- {wid} ({wdata.get('stance', '?')}, direction: {wdata.get('direction', '?')}): "
+            f"score={s}, hard_fail={hard_fail}, hypothesis: {wdata.get('hypothesis', '?')}"
+        )
+    round_summary = "\n".join(summary_lines)
 
-    if result is None:
-        print(json.dumps({"error": f"JSON parse failed: {last_err}", "raw": last_text[:1000]}))
-        sys.exit(1)
+    # Annotate writeups with scores for the synthesizer
+    writeups_with_scores = writeups_json
+    if scores:
+        annotated = json.loads(writeups_json)
+        for wid in annotated:
+            if wid in result["scores"]:
+                annotated[wid]["score"] = result["scores"][wid].get("final_score", 0)
+                annotated[wid]["hard_gate_failed"] = result["scores"][wid].get("hard_gate_failed", False)
+        writeups_with_scores = json.dumps(annotated)
 
-    # Re-derive scores for each worker
-    for wid, wscores in result.get("scores", {}).items():
-        result["scores"][wid] = _re_derive_scores(wscores)
+    # ── Call 2: Synthesize document ──
+    synth_prompt = _load_prompt("judge_synthesize.md").format(
+        target=target, current_doc=current_doc,
+        writeups_with_scores=writeups_with_scores,
+    )
+    documents = _call_judge_json(synth_prompt, "SYNTHESIZE")
+    if documents:
+        result["documents"] = documents
+
+    # ── Call 3: Curate roadmap ──
+    roadmap_prompt = _load_prompt("judge_roadmap.md").format(
+        target=target, roadmap=roadmap,
+        roadmap_proposals=roadmap_proposals or "(none)",
+        round_summary=round_summary,
+    )
+    new_roadmap = _call_judge_text(roadmap_prompt, "ROADMAP")
+    if new_roadmap:
+        result["roadmap"] = new_roadmap
+
+    # ── Call 4: Update meta ──
+    meta_prompt = _load_prompt("judge_meta.md").format(
+        target=target, current_meta=current_meta or "(no meta document yet)",
+        round_summary=round_summary,
+        roadmap=result["roadmap"] or roadmap,
+    )
+    new_meta = _call_judge_text(meta_prompt, "META")
+    if new_meta:
+        result["meta"] = new_meta
 
     print(json.dumps(result))
 
