@@ -27,37 +27,39 @@ Determine both for the human's goal before proceeding.
 
 ## Phase 1: Understand the goal
 
-**Start by asking: "What's your research goal? What are you trying to improve?"**
-
-Listen to the answer. Then figure out the project type:
+Listen to the human's goal. Then figure out the project type:
 
 **If the goal involves code**: Read the codebase — understand the structure, find what's relevant, look for existing tests and benchmarks. Figure out as much as you can before saying anything else.
 
 **If the goal involves research/documents**: Determine what the output document should contain, what "better" means for it, and what sources/approaches the agents should use.
 
-After your analysis, present a **complete research plan** in one message:
+After your analysis, present a **short plan**:
 
-- A short name for this initiative (slug format, e.g. `sort-optimization`, `api-latency`)
-- Here's what I think we're optimizing
-- Strategy: competitive or collaborative — and why
-- Measurement: quantitative or qualitative — and why
-- Here's how I'll measure it (eval script for code / rubric criteria for documents)
-- Here are the files the agents will edit
-- Here are the files that are off-limits
-- Here are the research directions I'd explore
-- Recommended: N workers, M rounds, estimated cost ~$X
-- Does this look right? Anything you'd change?
+```
+**<name>** — <one-line goal>
 
-**ONE follow-up, not a questionnaire.** The human confirms or adjusts, then you write the config files. That's it — two exchanges maximum.
+Directions to explore:
+- <specific idea 1>
+- <specific idea 2>
+- <specific idea 3>
+- ...
+
+<N> workers, <M> rounds, ~$<X>. Ready?
+```
+
+Keep implementation details (lockfiles, editable files list, parallelism reasoning) out of the plan — those are your job. Surface only what the human needs to confirm the goal is right.
+
+Work interactively with the human to clarify the goal. Ask follow-up questions if needed. When the goal is clear, write the config files.
 
 Things you figure out yourself (do NOT ask the human):
 
 - **The initiative name**: derive from the goal. Keep it short, lowercase, hyphenated.
+- **Strategy and measurement**: determine from the goal type. Do not explain your reasoning unless asked.
 - **What files to edit**: For code — look at imports, call graphs. For documents — create the initial document.
 - **What's off limits**: Tests, configs, CI, build files, lockfiles, eval infrastructure.
 - **How to measure it**: For code — existing benchmarks or write an eval script. For documents — design a rubric with weighted criteria.
 - **Research directions**: Specific, actionable ideas for improvement.
-- **Parallelism and rounds**: Recommend based on problem complexity and expected cost. Simple optimization: 3 workers, 5 rounds. Deep research: 3 workers, 10 rounds. Present estimate to human — they confirm or adjust.
+- **Parallelism and rounds**: Recommend based on problem complexity and expected cost. Simple optimization: 3 workers, 5 rounds. Deep research: 3 workers, 10 rounds.
 
 **Only ask the human when you genuinely cannot determine something from the code or context.**
 

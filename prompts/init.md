@@ -18,8 +18,9 @@ All paths below are relative to the autoresearch directory (AR_DIR) provided in 
 2. Read `AR_DIR/eval.sh` (if quantitative mode). Missing → "INIT FAILED: eval.sh not found" and stop.
 3. Read the target, directions, and editable files from program.md.
 4. Set up `AR_DIR/best/` and `AR_DIR/branches/main/`:
-   - If editable files exist in the project dir, copy them in.
-   - If they don't exist, **create them.** Read the target and directions in program.md. Write whatever scaffolding is needed — source code, build scripts, config files — so that the eval can run and experiments can iterate. This is the baseline that all workers start from.
+   - Editable files are listed as project-relative paths (e.g. `autoresearch/myproject/analysis.md`).
+   - Copy or create each editable file at its **full relative path** inside `best/` and `branches/main/`. For example, if the editable file is `autoresearch/myproject/analysis.md`, write it to `AR_DIR/best/autoresearch/myproject/analysis.md` and `AR_DIR/branches/main/autoresearch/myproject/analysis.md`.
+   - If files don't exist yet, **create them.** Read the target and directions in program.md. Write whatever scaffolding is needed so the eval can run and experiments can iterate. This is the baseline all workers start from.
 5. Run eval on `AR_DIR/best/`. Quantitative: `bash AR_DIR/eval.sh AR_DIR/best/` → must produce a number. Qualitative: skip, baseline = 0.
 6. Write `AR_DIR/best_score.txt`.
 7. Create empty `AR_DIR/log.jsonl`.

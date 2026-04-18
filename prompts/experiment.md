@@ -13,7 +13,7 @@ Provided in user prompt: experiment ID, worker dir, autoresearch dir, eval comma
 2. THINK: what has been tried? what failed? what's in the parking lot? what untested direction exists? → decide hypothesis
 3. THOUGHT EXPERIMENT (optional): if conclusive without testing → write `thought` to `status.txt`, analysis to `hypothesis.txt`, `0` to `score.txt`, skip to step 9
 4. HYPOTHESIS: one sentence, write to `hypothesis.txt`
-5. EDIT: worker dir files only. only files listed editable in program.md. never edit eval.sh/lockfile.txt/program.md/state.json/log.jsonl/branches.jsonl/findings.md/parking_lot.md or parking_lot_*.txt files
+5. EDIT: editable files are listed in program.md as project-relative paths (e.g. `autoresearch/myproject/analysis.md`). They live at that same relative path inside your worker dir (e.g. `worker_dir/autoresearch/myproject/analysis.md`). Edit them there. Never edit eval.sh/lockfile.txt/program.md/state.json/log.jsonl/branches.jsonl/findings.md/parking_lot.md or parking_lot_*.txt files.
 6. DIFF: write text diff to `diff.txt`
 7. EVAL: run eval command. write number to `score.txt`. write `real` to `status.txt`
 8. SUMMARY: write a paragraph to `summary.txt` — what you changed, what the result showed, what was surprising or notable. This is the record future workers will learn from.

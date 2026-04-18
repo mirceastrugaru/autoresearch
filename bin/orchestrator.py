@@ -268,20 +268,28 @@ def check_noise(new_score: float, best_score: float, direction: str = "maximize"
 
 
 def prepare_workers(ar_dir: Path, active_branch: str, parallelism: int):
+    """Set up worker dirs with editable files at their correct project-relative paths.
+
+    Editable files are listed in program.md as project-relative paths (e.g.
+    autoresearch/timsort-explainer/explanation.md). eval.sh receives the worker
+    dir as $1 and reads files at worker_dir/editable_file_path. So files must
+    live at that exact relative path inside each worker dir.
+    """
     workers = ar_dir / "workers"
     if workers.exists():
         shutil.rmtree(workers)
     branch_dir = ar_dir / "branches" / active_branch
+    editable_files = parse_editable_files(ar_dir)
     for i in range(1, parallelism + 1):
         wdir = workers / f"worker-{i}"
         wdir.mkdir(parents=True)
         if branch_dir.exists():
-            for item in branch_dir.iterdir():
-                dest = wdir / item.name
-                if item.is_file():
-                    shutil.copy2(item, dest)
-                elif item.is_dir():
-                    shutil.copytree(item, dest)
+            for rel_path in editable_files:
+                src = branch_dir / rel_path
+                if src.exists():
+                    dest = wdir / rel_path
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dest)
 
 
 # Files created by the orchestrator/experiment protocol — not project code
