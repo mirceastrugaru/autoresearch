@@ -60,7 +60,7 @@ from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-MODEL = os.environ.get("AUTORESEARCH_MODEL", "claude-sonnet-4-5-20250929")
+MODEL = os.environ.get("AUTORESEARCH_MODEL", "claude-sonnet-4-6")
 SUMMARIZE_EVERY = 5
 DISCARD_STREAK_WARN = 3
 DISCARD_STREAK_PIVOT = 5
@@ -88,7 +88,6 @@ async def run_agent(
                 system_prompt=system_prompt,
                 permission_mode="bypassPermissions",
                 cwd=str(cwd),
-                max_turns=50,
                 extra_args={"no-session-persistence": None},
             ),
         ):
