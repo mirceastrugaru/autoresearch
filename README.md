@@ -2,6 +2,16 @@
 
 Autonomous experimentation for any codebase or research task. Point it at something you want to improve, define how to measure "better," and it runs parallel experiments — keeping what works, discarding what doesn't.
 
+### How it works
+
+- **You define a program** — a target (what to improve), editable files, directions to explore, and a scoring rubric
+- **Each round**, the orchestrator spawns N parallel Claude instances (workers) via the Agent SDK, each with a different role bias (conservative, moderate, aggressive)
+- **Workers research and edit** the target document or code, then get scored by an LLM judge against a rubric with hard gates (factual correctness, evidence quality) and soft gates (domain-specific qualities you define)
+- **In collaborative mode**, all workers that pass hard gates get merged by a separate merge agent into one improved document. In competitive mode, the highest scorer wins
+- **The loop repeats** for a configurable number of rounds, with convergence detection that pivots strategy when progress stalls
+- **A web monitor** serves a real-time dashboard (SSE) showing worker status, hypotheses, experiment log, and the evolving best document
+- Everything runs headless through Claude Code — no API keys needed
+
 Works on code (quantitative — eval script returns a number) and documents (qualitative — LLM judge scores against a rubric with hard/soft gates).
 
 ## Install
