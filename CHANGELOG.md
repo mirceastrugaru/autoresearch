@@ -2,6 +2,9 @@
 
 ## 2026-04-16
 
+### Bias rotation across workers
+Vector-aware assignment now spreads CONSERVATIVE/MODERATE/AGGRESSIVE across the workers within each round. Previously the tuple scoring tied on cold-start rounds and the bias loop's declaration order meant every worker in round 1 got CONSERVATIVE. Fix penalizes biases already chosen by prior workers in the same round — round 1 of a 5-vector/3-worker run now produces (CONSERVATIVE, MODERATE, AGGRESSIVE) across the three workers instead of all CONSERVATIVE. Over 15 slots the distribution is now even (5/5/5) versus the previous ~7/5/3.
+
 ### Merge timeout
 Configurable timeout (`AUTORESEARCH_MERGE_TIMEOUT`, default 300s) around merge agent calls. When a merge hangs — observed on two initiatives where the API call never returned — the orchestrator kills it and falls back to the best-scoring worker's files instead of blocking forever.
 
