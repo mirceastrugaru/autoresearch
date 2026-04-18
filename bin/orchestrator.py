@@ -626,6 +626,7 @@ def _build_shared_context(ar_dir: Path, skill_text: str, is_qualitative: bool = 
     findings = read_or(ar_dir / "findings.md", "")
     full_log = read_full_log(ar_dir)
     roadmap = read_or(ar_dir / "roadmap.md", "")
+    meta = read_or(ar_dir / "meta.md", "")
 
     best_dir = ar_dir / "best"
     editable_files = parse_editable_files(ar_dir)
@@ -636,16 +637,20 @@ def _build_shared_context(ar_dir: Path, skill_text: str, is_qualitative: bool = 
             best_docs.append(f"=== CURRENT MAIN DOCUMENT: {f} ===\n{p.read_text()}")
     best_content = "\n\n".join(best_docs) if best_docs else "[no document yet]"
 
-    return (
-        f"{skill_text}\n\n"
-        f"---\n\n"
-        f"## SHARED CONTEXT (pre-loaded for all workers this round)\n\n"
-        f"### program.md\n{program}\n\n"
-        f"### findings.md\n{findings}\n\n"
-        f"### log.jsonl (full history)\n{full_log}\n\n"
-        f"### roadmap.md\n{roadmap}\n\n"
-        f"### Current main document\n{best_content}"
-    )
+    parts = [
+        f"{skill_text}\n\n",
+        f"---\n\n",
+        f"## SHARED CONTEXT (pre-loaded for all workers this round)\n\n",
+        f"### program.md\n{program}\n\n",
+        f"### findings.md\n{findings}\n\n",
+        f"### log.jsonl (full history)\n{full_log}\n\n",
+        f"### roadmap.md\n{roadmap}\n\n",
+        f"### Current main document\n{best_content}",
+    ]
+    if meta:
+        parts.append(f"\n\n### meta.md (research process tracking)\n{meta}")
+
+    return "".join(parts)
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -863,7 +868,7 @@ async def main():
                 for line in recent_log.strip().splitlines()[-15:]:
                     try:
                         entry = json.loads(line)
-                        if entry.get("status") in ("discard", "thought"):
+                        if entry.get("status") == "discard":
                             h = entry.get("hypothesis", "")
                             s = entry.get("score", 0)
                             if h:
@@ -889,7 +894,7 @@ async def main():
                 for line in recent_log.strip().splitlines()[-9:]:
                     try:
                         entry = json.loads(line)
-                        if entry.get("status") in ("discard", "thought"):
+                        if entry.get("status") == "discard":
                             h = entry.get("hypothesis", "")
                             if h:
                                 recent_failures.append(f"  - {h}")
@@ -1286,23 +1291,32 @@ async def main():
                     if judge_data.get("meta"):
                         (ar_dir / "meta.md").write_text(judge_data["meta"])
 
-                    # Update log entries with judge scores
+                    # Update scores (only if scoring succeeded)
                     scores = judge_data.get("scores", {})
-                    best_score_this_round = 0
-                    for wid, wscores in scores.items():
-                        s = wscores.get("final_score", 0)
-                        if s > best_score_this_round:
-                            best_score_this_round = s
-                        print(f"  {wid}: score={s} (hard_fail={wscores.get('hard_gate_failed', False)})")
-
                     merged_parents = [state["experiment_count"] + i for i in range(1, parallelism + 1)
                                       if f"worker-{i}" in writeups]
                     state["last_promoted_experiment"] = merged_parents[0] if merged_parents else state["last_promoted_experiment"]
                     state["last_promoted_experiments"] = merged_parents
-                    state["best_score"] = best_score_this_round
-                    (ar_dir / "best_score.txt").write_text(f"{best_score_this_round}\n")
-                    state["discard_streak"] = 0
-                    state["best_unchanged_count"] = 0
+
+                    if scores:
+                        best_score_this_round = 0
+                        for wid, wscores in scores.items():
+                            s = wscores.get("final_score", 0)
+                            if s > best_score_this_round:
+                                best_score_this_round = s
+                            print(f"  {wid}: score={s} (hard_fail={wscores.get('hard_gate_failed', False)})")
+                        state["best_score"] = best_score_this_round
+                        (ar_dir / "best_score.txt").write_text(f"{best_score_this_round}\n")
+                    else:
+                        print("  SCORE call failed — keeping previous best score")
+
+                    has_any_output = bool(judge_data.get("documents") or judge_data.get("roadmap") or scores)
+                    if has_any_output:
+                        state["discard_streak"] = 0
+                        state["best_unchanged_count"] = 0
+                    else:
+                        state["discard_streak"] += 1
+                        state["best_unchanged_count"] += parallelism
                     dlog(ar_dir, "judge_done", round=round_num,
                          scores={wid: ws.get("final_score", 0) for wid, ws in scores.items()},
                          merged_parents=merged_parents,

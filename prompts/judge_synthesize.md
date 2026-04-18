@@ -17,6 +17,7 @@ Read all supportive write-ups (evidence consistent with directions) and adversar
 - Maintains all existing content that wasn't contradicted.
 - ONLY includes sections with actual evidence. No placeholder sections.
 - Each worker's contribution: at most 150 words. State the finding, the strongest evidence, and the source. 50 words is better than 150 if the point is clear.
+- **Provenance**: when incorporating a finding, cite the worker ID in parentheses at the end of the claim, e.g. "(worker-2)". Existing citations from previous rounds should be preserved.
 
 One editable file per entry in the editable files list.
 

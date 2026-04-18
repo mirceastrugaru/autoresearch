@@ -22,7 +22,6 @@ def summarize(ar_dir: Path) -> str:
     total = len(entries)
     keeps = [e for e in entries if e.get("status") == "keep"]
     discards = [e for e in entries if e.get("status") == "discard"]
-    thoughts = [e for e in entries if e.get("status") == "thought"]
     crashes = [e for e in entries if e.get("status") in ("crash", "timeout")]
 
     best_score = max((e.get("score", 0) for e in entries), default=0)
@@ -58,7 +57,7 @@ def summarize(ar_dir: Path) -> str:
         "# Autoresearch Findings (auto-generated)\n",
         "## Stats",
         f"- Total experiments: {total} (keeps: {len(keeps)}, discards: {len(discards)}, "
-        f"thoughts: {len(thoughts)}, crashes: {len(crashes)})",
+        f"crashes: {len(crashes)})",
         f"- Best score: {best_score:.2f}\n",
         "## Experiment genealogy",
         " → ".join(genealogy) + "\n",
@@ -86,17 +85,6 @@ def summarize(ar_dir: Path) -> str:
             lines.append(f'- experiment {eid} [parent: #{parent}, {branch}]: "{hyp}" (score: {score:.1f})')
     else:
         lines.append("- none yet")
-    lines.append("")
-
-    # Thought experiments
-    lines.append("## Thought experiments")
-    if thoughts:
-        for e in thoughts:
-            eid = e.get("experiment_id", "?")
-            hyp = e.get("hypothesis", "")[:100]
-            lines.append(f'- experiment {eid}: "{hyp}"')
-    else:
-        lines.append("- none")
     lines.append("")
 
     # Common discard themes
