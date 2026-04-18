@@ -7,6 +7,7 @@ Provides start/pause/resume/stop and SSE event streaming.
 import asyncio
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -120,6 +121,20 @@ def _build_workers_snapshot(ar_dir: Path) -> dict:
     if not debug_path.exists():
         return {"workers": [], "round": 0, "tension": {"pro": 50, "con": 50}, "cost": 0, "tokens": 0, "stallStreak": 0}
 
+    # Build direction ID → short title lookup
+    dir_titles = {}
+    try:
+        from bin.program_parser import parse_roadmap
+        for d in parse_roadmap(ar_dir):
+            title = d.get("title", "")
+            title = re.sub(r'\*\*([^*]+)\*\*', r'\1', title)
+            title = re.sub(r'^\[(REJECTED|RETRY|FLAGGED FOR REVIEW|COVERED[^]]*|PRIORITY[^]]*)\]\s*', '', title.strip())
+            title = title.strip()
+            short = title[:60] + "…" if len(title) > 60 else title
+            dir_titles[d["id"]] = short
+    except Exception:
+        pass
+
     workers = {}
     round_num = 0
     cost = 0.0
@@ -141,10 +156,12 @@ def _build_workers_snapshot(ar_dir: Path) -> dict:
 
         elif section == "worker_launch":
             w_num = e.get("worker", 0)
+            dir_id = e.get("assigned_direction", "")
+            dir_name = e.get("direction_title", "") or dir_titles.get(dir_id, dir_id)
             workers[w_num] = {
                 "id": f"w{w_num}",
                 "stance": e.get("stance", ""),
-                "dir": e.get("direction_title", ""),
+                "dir": dir_name,
                 "status": "running",
                 "tool": "",
                 "pct": 0,
@@ -157,8 +174,8 @@ def _build_workers_snapshot(ar_dir: Path) -> dict:
                 workers[w_num]["pct"] = 100
 
         elif section in ("round_end", "round_complete"):
-            cost += e.get("round_cost", 0)
-            tokens += e.get("round_output_tokens", 0) + e.get("round_input_tokens", 0)
+            cost = e.get("total_cost_so_far", cost)
+            tokens += e.get("tokens_in", 0) + e.get("tokens_out", 0)
 
     # Compute tension from log.jsonl
     tension = {"pro": 50, "con": 50}
@@ -178,6 +195,22 @@ def _build_workers_snapshot(ar_dir: Path) -> dict:
                 continue
         total = pro_total + con_total or 1
         tension = {"pro": int(round(pro_total / total * 100)), "con": int(round(con_total / total * 100))}
+
+    # Supplement with state.json for cost/round data
+    state_path = ar_dir / "state.json"
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text())
+            if state.get("round", 0) > round_num:
+                round_num = state["round"]
+            if state.get("total_cost", 0) > cost:
+                cost = state["total_cost"]
+            if state.get("total_tokens", 0) > tokens:
+                tokens = state["total_tokens"]
+            if state.get("discard_streak", 0) > stall_streak:
+                stall_streak = state["discard_streak"]
+        except (json.JSONDecodeError, KeyError):
+            pass
 
     return {
         "workers": list(workers.values()),
@@ -246,7 +279,7 @@ def _map_debug_to_sse(e: dict, ar_dir: Path) -> list[str]:
         events.append(_sse_event("worker.update", {
             "id": f"w{e.get('worker')}",
             "stance": e.get("stance", ""),
-            "dir": e.get("direction_title", ""),
+            "dir": e.get("direction_title", "") or e.get("assigned_direction", ""),
             "status": "running",
             "tool": "",
             "pct": 0,
