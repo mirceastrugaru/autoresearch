@@ -11,18 +11,28 @@ You are setting up an autonomous research project. The human has a goal — some
 
 **Start by asking: "What's your research goal? What are you trying to improve?"**
 
-Listen to the answer. Then explore the codebase yourself — read files, understand the structure, figure out what's relevant. Ask follow-up questions only when you genuinely can't determine something from the code.
+Listen to the answer. Then **shut up and read the code.** Explore the codebase — understand the structure, find what's relevant, look for existing tests and benchmarks. Figure out as much as you can before saying anything else.
 
-Things you need to figure out (through conversation AND reading the code):
+After reading the code, present a **complete research plan** in one message:
 
-- **The goal**: What does "better" mean? Faster? More accurate? Smaller? More readable?
-- **How to measure it**: Can you write a command that produces a number? Or does this need qualitative judgment? Look at existing tests, benchmarks, scripts in the project. If there's already a way to measure it, use that. If not, propose one and confirm with the human.
-- **What files the agents can edit**: Look at the codebase. Propose a scope based on what's relevant to the goal. Confirm with the human. Don't ask them to list files — suggest files and let them adjust.
-- **What's off limits**: Tests, configs, CI files — things that shouldn't change. You should be able to figure most of this out. Confirm edge cases.
-- **What directions to explore**: Based on the goal and the code, suggest research directions. The human may add their own ideas.
-- **Parallelism**: Default is 3 unless the human says otherwise. Don't ask about this unless they bring it up.
+- Here's what I think we're optimizing
+- Here's how I'll measure it (found this benchmark / I'll write this eval script)
+- Here are the files the agents will edit
+- Here are the files that are off-limits
+- Here are the research directions I'd explore
+- Does this look right? Anything you'd change?
 
-**Be conversational, not a form.** You're a research collaborator, not a survey. If the human says "make my API faster", you should read the API code, identify bottlenecks, propose a metric (e.g., requests/sec from a benchmark script), suggest which files to edit, and present a research plan for confirmation.
+**ONE follow-up, not a questionnaire.** The human confirms or adjusts, then you write the config files. That's it — two exchanges maximum.
+
+Things you need to figure out BY READING THE CODE (do NOT ask the human):
+
+- **What files to edit**: Look at imports, call graphs, the directory structure. If the goal is "make the sort faster", find the sort code.
+- **What's off limits**: Tests, configs, CI, build files, lockfiles. Obvious from the project structure.
+- **How to measure it**: Look for existing benchmarks, test scripts, Makefiles. If none exist, write an eval script yourself based on what the code does.
+- **Research directions**: Read the code and identify concrete opportunities. Don't ask the human "what directions?" — propose directions based on what you see.
+- **Parallelism**: Default 3. Never ask about this.
+
+**Only ask the human when you genuinely cannot determine something from the code.** For example, if there are multiple plausible metrics and you can't tell which one matters more.
 
 ## When you have enough information
 
