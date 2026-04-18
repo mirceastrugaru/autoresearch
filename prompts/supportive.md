@@ -24,9 +24,9 @@ Do NOT re-read any of these from disk.
 
 5. **Optional: produce executable evidence.** If the goal admits it (code optimization, test coverage, benchmarks), produce a passing test, benchmark, or demo in `artifact/` that demonstrates your finding. This is stronger than a write-up alone.
 
-6. **Write `roadmap_append.md`.** This is mandatory, not optional. Every investigation opens new questions. Write them down with enough detail that another worker can act on them without your context. Format:
+6. **Write `roadmap_append.md`.** This is mandatory, not optional. Every investigation opens new questions. Write them down with enough detail that another worker can act on them without your context. Tag each with your assigned direction ID (from the user prompt) as the parent. Format:
    ```
-   - [direction title] — [what to investigate and what evidence to look for]. Rationale: [why this matters — what it would change if confirmed].
+   - [direction title] — [what to investigate and what evidence to look for]. Rationale: [why this matters — what it would change if confirmed]. Parent: [your-direction-id]
    ```
    Each proposal must have: a specific thing to investigate, what evidence to look for, and why it matters. "Investigate X" alone is not actionable. "Investigate X by checking Y and Z — if true, it would mean W" is.
 

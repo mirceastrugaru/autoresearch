@@ -80,6 +80,7 @@ from bin.program_parser import (
     validate_rubric,
     parse_roadmap,
     build_coverage_matrix,
+    sync_directions_from_roadmap,
     read_or,
     read_state,
     write_state,
@@ -938,8 +939,9 @@ async def main():
             direction_directive = ""
             if assigned_direction_title:
                 direction_directive = (
-                    f"\n\nASSIGNED DIRECTION: {assigned_direction_title}\n"
-                    f"Stance: {stance.upper()}. Focus on this direction only. Other workers are covering other directions."
+                    f"\n\nASSIGNED DIRECTION [{assigned_direction_id}]: {assigned_direction_title}\n"
+                    f"Stance: {stance.upper()}. Focus on this direction only. Other workers are covering other directions.\n"
+                    f"Tag your roadmap_append.md proposals with parent: {assigned_direction_id}"
                 )
 
             user_msg = (
@@ -1223,9 +1225,31 @@ async def main():
                             dest.parent.mkdir(parents=True, exist_ok=True)
                             dest.write_text(content)
 
-                    # Write updated roadmap
+                    # Write updated roadmap and sync direction registry
                     if judge_data.get("roadmap"):
                         (ar_dir / "roadmap.md").write_text(judge_data["roadmap"])
+                        updated_directions = parse_roadmap(ar_dir)
+                        # Build parent map: new directions proposed this round inherit
+                        # from the direction their proposing worker was assigned to
+                        parent_map = {}
+                        for d in updated_directions:
+                            if d["id"] not in {rd["id"] for rd in directions}:
+                                parent_map[d["id"]] = None
+                        # Try to attribute parentage from worker proposals
+                        for i in range(1, parallelism + 1):
+                            if (i - 1) < len(direction_assignments):
+                                parent_did = direction_assignments[i - 1]["direction"]["id"]
+                                wfile = ar_dir / "workers" / f"worker-{i}" / "roadmap_append.md"
+                                if wfile.exists():
+                                    proposal_text = wfile.read_text()
+                                    for d in updated_directions:
+                                        if d["id"] in parent_map and d["title"].lower() in proposal_text.lower():
+                                            parent_map[d["id"]] = parent_did
+                        sync_directions_from_roadmap(
+                            ar_dir, updated_directions,
+                            parent_map=parent_map,
+                            source=f"round-{round_num}",
+                        )
 
                     # Write meta document
                     if judge_data.get("meta"):

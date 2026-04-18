@@ -48,7 +48,8 @@ Then produce the updated roadmap:
 - Reorder by impact (directions that would most change the analysis first).
 - If a proposal is promising but too vague, rewrite it to be specific before adding.
 - If uncertain, add with "[FLAGGED FOR REVIEW]" prefix.
-- Format as a flat numbered list under `## Directions`.
+- **Preserve direction IDs.** Existing directions have `[d-xxxx]` prefixes — keep them. For new directions, generate a new ID in the same format (d- followed by 6 hex chars). Every direction in the output must have an ID.
+- Format as a flat numbered list under `## Directions`. Each line: `N. [d-xxxx] Direction title`.
 
 ### Job 4: Update the meta document
 Track the research process: directions assigned, coverage, round log (workers, stance, direction, score, key finding, hard gate pass/fail), remaining directions, failures, cost.

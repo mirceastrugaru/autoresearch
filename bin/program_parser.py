@@ -4,9 +4,12 @@ Extracted from orchestrator.py so the API server can import them without
 triggering orchestrator preflight checks or importing the Agent SDK.
 """
 
+import hashlib
 import json
 import re
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -161,14 +164,24 @@ def validate_rubric(ar_dir: Path):
 # ── Roadmap parsing ─────────────────────────────────────────────────────────
 
 
+def _make_direction_id() -> str:
+    """Generate a short unique direction ID."""
+    raw = hashlib.md5(f"{time.time()}{id(object())}".encode()).hexdigest()[:6]
+    return f"d-{raw}"
+
+
 def parse_roadmap(ar_dir: Path) -> list[dict]:
     """Parse roadmap.md into a list of directions.
-    Returns [{"id": "dir-1", "title": "...", "priority": N}].
-    Directions are stance-neutral — supportive/adversarial assignment happens in the orchestrator."""
+    Returns [{"id": "d-xxxx", "title": "...", "priority": N}].
+    Lines with [d-xxxx] prefix preserve their ID. Lines without get looked up
+    in the registry or assigned a new ID."""
     roadmap_path = ar_dir / "roadmap.md"
     if not roadmap_path.exists():
         return []
     text = roadmap_path.read_text()
+    registry = read_direction_registry(ar_dir)
+    registry_by_id = {d["id"]: d for d in registry}
+
     directions = []
     priority = 0
     in_directions = False
@@ -181,31 +194,98 @@ def parse_roadmap(ar_dir: Path) -> list[dict]:
             break
         if not in_directions:
             continue
+
+        # Extract the direction text from numbered or bulleted lines
+        title = None
         if re.match(r"^\d+\.\s+", line):
-            priority += 1
             title = re.sub(r"^\d+\.\s+", "", line).strip()
-            if title.startswith("[FLAGGED FOR REVIEW]"):
-                title = title.replace("[FLAGGED FOR REVIEW]", "").strip()
-            directions.append({
-                "id": f"dir-{priority}",
-                "title": title,
-                "priority": priority,
-            })
         elif line.startswith("- "):
-            priority += 1
             title = line.lstrip("- ").strip()
-            if title.startswith("[FLAGGED FOR REVIEW]"):
-                title = title.replace("[FLAGGED FOR REVIEW]", "").strip()
-            directions.append({
-                "id": f"dir-{priority}",
-                "title": title,
-                "priority": priority,
-            })
+        if title is None:
+            continue
+
+        priority += 1
+        if title.startswith("[FLAGGED FOR REVIEW]"):
+            title = title.replace("[FLAGGED FOR REVIEW]", "").strip()
+
+        # Extract inline ID if present: [d-xxxx] Title text
+        id_match = re.match(r"\[([d]-[a-f0-9]+)\]\s*(.*)", title)
+        if id_match:
+            dir_id = id_match.group(1)
+            title = id_match.group(2).strip()
+        else:
+            dir_id = None
+
+        # If no inline ID, check if this direction is already registered by title
+        if not dir_id:
+            for reg in registry:
+                if reg["title"].lower() == title.lower():
+                    dir_id = reg["id"]
+                    break
+
+        if not dir_id:
+            dir_id = _make_direction_id()
+
+        directions.append({
+            "id": dir_id,
+            "title": title,
+            "priority": priority,
+        })
+
     return directions
 
 
+def read_direction_registry(ar_dir: Path) -> list[dict]:
+    """Read directions.jsonl registry."""
+    path = ar_dir / "directions.jsonl"
+    if not path.exists():
+        return []
+    entries = []
+    for line in path.read_text().strip().splitlines():
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return entries
+
+
+def register_direction(ar_dir: Path, dir_id: str, title: str,
+                       parent_id: str | None = None,
+                       source: str = "") -> dict:
+    """Register a new direction in directions.jsonl. Returns the entry."""
+    entry = {
+        "id": dir_id,
+        "title": title,
+        "parent_id": parent_id,
+        "source": source,
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "status": "active",
+    }
+    with open(ar_dir / "directions.jsonl", "a") as f:
+        f.write(json.dumps(entry) + "\n")
+    return entry
+
+
+def sync_directions_from_roadmap(ar_dir: Path, directions: list[dict],
+                                  parent_map: dict[str, str] | None = None,
+                                  source: str = ""):
+    """Ensure all directions from the roadmap are registered.
+    parent_map: {dir_id: parent_dir_id} for newly discovered directions."""
+    registry = read_direction_registry(ar_dir)
+    known_ids = {d["id"] for d in registry}
+    parent_map = parent_map or {}
+    for d in directions:
+        if d["id"] not in known_ids:
+            register_direction(
+                ar_dir, d["id"], d["title"],
+                parent_id=parent_map.get(d["id"]),
+                source=source,
+            )
+
+
 def parse_program_directions(ar_dir: Path) -> list[dict]:
-    """Parse directions from program.md (## Directions section)."""
+    """Parse directions from program.md (## Directions section).
+    Each direction gets a stable ID generated once."""
     text = _read_program(ar_dir)
     directions = []
 
@@ -220,7 +300,7 @@ def parse_program_directions(ar_dir: Path) -> list[dict]:
             title = line.lstrip("- ").strip()
             short_title = title.split(" — ")[0] if " — " in title else title
             directions.append({
-                "id": f"dir-{priority}",
+                "id": _make_direction_id(),
                 "text": short_title,
                 "fullText": title,
                 "priority": priority,

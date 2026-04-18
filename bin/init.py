@@ -19,6 +19,7 @@ from bin.program_parser import (
     read_parallelism,
     read_state,
     read_target,
+    register_direction,
     write_state,
 )
 
@@ -98,10 +99,13 @@ def init_project(
     # Create findings.md
     (ar_dir / "findings.md").write_text("# Findings\n\nNo experiments yet.\n")
 
-    # Create roadmap.md from program.md directions
+    # Create directions.jsonl registry and roadmap.md
+    (ar_dir / "directions.jsonl").write_text("")
     roadmap_lines = ["# Roadmap\n", "## Directions"]
     for i, d in enumerate(directions, 1):
-        roadmap_lines.append(f"{i}. {d.get('fullText', d.get('text', ''))}")
+        title = d.get("fullText", d.get("text", ""))
+        register_direction(ar_dir, d["id"], title, parent_id=None, source="program.md")
+        roadmap_lines.append(f"{i}. [{d['id']}] {title}")
     (ar_dir / "roadmap.md").write_text("\n".join(roadmap_lines) + "\n")
 
     # Create branches.jsonl
