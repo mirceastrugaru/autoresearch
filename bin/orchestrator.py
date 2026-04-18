@@ -186,6 +186,17 @@ def append_branch(ar_dir: Path, entry: dict):
         f.write(json.dumps(entry) + "\n")
 
 
+def dlog(ar_dir: Path, section: str, **fields):
+    """Append a debug log entry to debug.log. Survives worker cleanup."""
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "section": section,
+        **fields,
+    }
+    with open(ar_dir / "debug.log", "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
 # ── Critique checks (pure Python, no LLM) ───────────────────────────────────
 
 
@@ -301,6 +312,10 @@ def cleanup_workers(ar_dir: Path):
 def force_pivot(state: dict, ar_dir: Path, project_dir: Path):
     new_branch = f"pivot-{state['experiment_count']}"
     print(f"\n=== FORCED PIVOT: '{new_branch}' from baseline ===")
+    dlog(ar_dir, "forced_pivot", new_branch=new_branch,
+         discard_streak=state["discard_streak"],
+         best_score=state["best_score"],
+         experiment_count=state["experiment_count"])
 
     branch_dir = ar_dir / "branches" / new_branch
     branch_dir.mkdir(parents=True, exist_ok=True)
@@ -510,6 +525,9 @@ async def main():
         print(f"\n{'=' * 50}")
         print(f"  ROUND {round_num}/{max_rounds}  (experiments: {state['experiment_count']}, best: {state['best_score']:.2f})")
         print(f"{'=' * 50}")
+        dlog(ar_dir, "round_start", round=round_num, max_rounds=max_rounds,
+             experiments=state["experiment_count"], best_score=state["best_score"],
+             branch=state["active_branch"], discard_streak=state["discard_streak"])
 
         # Convergence
         if state["discard_streak"] >= DISCARD_STREAK_PIVOT:
@@ -646,6 +664,7 @@ async def main():
             # Agent crashed?
             if isinstance(results[i - 1], Exception):
                 print(f"  worker-{i}: CRASH ({results[i - 1]})")
+                dlog(ar_dir, "worker_crash", worker=i, exp=exp_num, error=str(results[i - 1]))
                 append_log(ar_dir, {
                     "experiment_id": exp_num, "branch": state["active_branch"],
                     "worker": i, "status": "crash",
@@ -660,6 +679,9 @@ async def main():
             actual = read_or(wdir / "experiment_id_output.txt", "MISSING").strip()
             if expected != actual:
                 print(f"  worker-{i}: STALE (expected {expected}, got {actual})")
+                dlog(ar_dir, "worker_stale", worker=i, exp=exp_num,
+                     expected=expected, actual=actual,
+                     files_present=[f.name for f in wdir.iterdir() if f.is_file()] if wdir.exists() else [])
                 append_log(ar_dir, {
                     "experiment_id": exp_num, "branch": state["active_branch"],
                     "worker": i, "status": "crash",
@@ -676,6 +698,8 @@ async def main():
 
             if status == "thought":
                 print(f"  worker-{i}: THOUGHT — {hypothesis[:80]}")
+                dlog(ar_dir, "worker_thought", worker=i, exp=exp_num,
+                     hypothesis=hypothesis, summary=summary)
                 append_log(ar_dir, {
                     "experiment_id": exp_num, "branch": state["active_branch"],
                     "worker": i, "status": "thought",
@@ -694,6 +718,11 @@ async def main():
             diff_text = read_or(wdir / "diff.txt", "").strip()
 
             print(f"  worker-{i}: score={worker_score:.2f} (best={state['best_score']:.2f})")
+            dlog(ar_dir, "worker_result", worker=i, exp=exp_num,
+                 score=worker_score, best=state["best_score"],
+                 hypothesis=hypothesis, summary=summary,
+                 diff_chars=len(diff_text), has_diff=bool(diff_text),
+                 has_summary=bool(summary))
 
             # Mechanical critique
             skip = False
@@ -767,17 +796,33 @@ async def main():
             (ar_dir / "best_score.txt").write_text(f"{best_worker_score}\n")
             state["discard_streak"] = 0
             state["best_unchanged_count"] = 0
+            dlog(ar_dir, "promoted", worker=best_worker, exp=promoted_exp,
+                 new_best=best_worker_score)
         else:
             state["discard_streak"] += 1
             state["best_unchanged_count"] += parallelism
             print(f"\n  No improvement. Discard streak: {state['discard_streak']}")
+            dlog(ar_dir, "no_improvement", discard_streak=state["discard_streak"],
+                 best_unchanged_count=state["best_unchanged_count"])
 
         state["experiment_count"] += parallelism
         write_state(ar_dir, state)
+
+        # Merge parking lots and log what was collected
+        parking_before = read_or(ar_dir / "parking_lot.md", "").strip()
         merge_parking_lots(ar_dir, parallelism)
+        parking_after = read_or(ar_dir / "parking_lot.md", "").strip()
+        if parking_after != parking_before:
+            new_content = parking_after[len(parking_before):].strip()
+            dlog(ar_dir, "parking_lot_merge", round=round_num, new_entries=new_content)
+
         cleanup_workers(ar_dir)
         print(f"  Round tokens: in={round_input_tokens} out={round_output_tokens} "
               f"cache_read={round_cache_read} cache_create={round_cache_create}")
+        dlog(ar_dir, "round_end", round=round_num,
+             tokens_in=round_input_tokens, tokens_out=round_output_tokens,
+             cache_read=round_cache_read, cache_create=round_cache_create,
+             total_cost_so_far=total_cost)
 
         # Periodic summarize
         if round_num % SUMMARIZE_EVERY == 0:
