@@ -1,23 +1,41 @@
 ---
-description: "Set up a new autoresearch project. Use when the user wants to optimize something, improve performance, run experiments on their code, or says /autoresearch:design."
+description: "Set up a new autoresearch project. Use when the user wants to optimize something, improve performance, run experiments on their code, research a topic iteratively, or says /autoresearch:design."
 alwaysApply: false
 ---
 
 # Autoresearch Design
 
-You are setting up an autonomous research project. The human has a goal — something they want to make better. Your job is to understand that goal, explore the codebase, and produce the configuration files the orchestrator needs. Then run the experiments and present results.
+You are setting up an autonomous research project. The human has a goal — something they want to make better. Your job is to understand that goal, produce the configuration files the orchestrator needs, and then run the iterative experiment loop.
+
+## MANDATORY: You MUST follow Phases 1-4 in order. Do NOT skip phases. Do NOT "just do it yourself."
+
+The entire point of autoresearch is the iterative loop — multiple rounds of parallel agents, each improving on the last. If you bypass the orchestrator and do the work directly, you have defeated the purpose. This applies to ALL goals: code optimization, document writing, research, analysis, prompt engineering — everything.
+
+## What kind of project is this?
+
+Autoresearch handles two kinds of work:
+
+**Code optimization (quantitative)**: Agents edit source code, run an eval script that produces a number, and the orchestrator promotes improvements. Examples: faster sort, better accuracy, smaller binary.
+
+**Document/research (qualitative)**: Agents edit a document (markdown, text, etc.), an LLM judge scores it against a rubric, and the orchestrator promotes improvements. Examples: competitive analysis, technical report, research summary, prompt optimization.
+
+Both use the same orchestrator loop. The difference is how scoring works. Determine which mode fits the human's goal and proceed accordingly.
 
 ## Phase 1: Understand the goal
 
 **Start by asking: "What's your research goal? What are you trying to improve?"**
 
-Listen to the answer. Then **shut up and read the code.** Explore the codebase — understand the structure, find what's relevant, look for existing tests and benchmarks. Figure out as much as you can before saying anything else.
+Listen to the answer. Then figure out the project type:
 
-After reading the code, present a **complete research plan** in one message:
+**If the goal involves code**: Read the codebase — understand the structure, find what's relevant, look for existing tests and benchmarks. Figure out as much as you can before saying anything else.
 
-- A short name for this initiative (slug format, e.g. `sort-optimization`, `api-latency`)
+**If the goal involves research/documents**: Determine what the output document should contain, what "better" means for it, and what sources/approaches the agents should use.
+
+After your analysis, present a **complete research plan** in one message:
+
+- A short name for this initiative (slug format, e.g. `sort-optimization`, `qt-competitive-analysis`)
 - Here's what I think we're optimizing
-- Here's how I'll measure it (found this benchmark / I'll write this eval script)
+- Here's how I'll measure it (eval script for code / rubric criteria for documents)
 - Here are the files the agents will edit
 - Here are the files that are off-limits
 - Here are the research directions I'd explore
@@ -25,16 +43,16 @@ After reading the code, present a **complete research plan** in one message:
 
 **ONE follow-up, not a questionnaire.** The human confirms or adjusts, then you write the config files. That's it — two exchanges maximum.
 
-Things you figure out BY READING THE CODE (do NOT ask the human):
+Things you figure out yourself (do NOT ask the human):
 
 - **The initiative name**: derive from the goal. Keep it short, lowercase, hyphenated.
-- **What files to edit**: Look at imports, call graphs, the directory structure.
-- **What's off limits**: Tests, configs, CI, build files, lockfiles. Obvious from the project structure.
-- **How to measure it**: Look for existing benchmarks, test scripts, Makefiles. If none exist, write an eval script yourself.
-- **Research directions**: Read the code and identify concrete opportunities.
+- **What files to edit**: For code — look at imports, call graphs. For documents — create the initial document.
+- **What's off limits**: Tests, configs, CI, build files, lockfiles, eval infrastructure.
+- **How to measure it**: For code — existing benchmarks or write an eval script. For documents — design a rubric with weighted criteria.
+- **Research directions**: Specific, actionable ideas for improvement.
 - **Parallelism**: Default 3. Never ask about this.
 
-**Only ask the human when you genuinely cannot determine something from the code.**
+**Only ask the human when you genuinely cannot determine something from the code or context.**
 
 ## Phase 2: Write the config files
 
@@ -55,7 +73,7 @@ Each initiative gets its own directory under `autoresearch/`. Create `autoresear
 {quantitative or qualitative}
 
 ## Direction
-{maximize or minimize — e.g., minimize for latency/time, maximize for throughput/accuracy}
+{maximize or minimize — e.g., minimize for latency/time, maximize for throughput/accuracy/quality}
 
 ## Parallelism
 {default 3}
@@ -68,32 +86,62 @@ Each initiative gets its own directory under `autoresearch/`. Create `autoresear
 {research directions — specific, actionable ideas}
 ```
 
-If qualitative, add a `## Rubric` section with criteria, weights, and scale.
+**For qualitative mode, add a `## Rubric` section:**
+
+```markdown
+## Rubric
+
+Score each criterion 1-10. Final score = weighted sum (max 100).
+
+| Criterion | Weight | Description |
+|-----------|--------|-------------|
+| {criterion1} | {weight1} | {what 1 vs 10 looks like} |
+| {criterion2} | {weight2} | {what 1 vs 10 looks like} |
+| ... | ... | ... |
+
+Weights must sum to 10.
+```
 
 ### autoresearch/<name>/eval.sh
 
-For quantitative: an executable bash script that accepts a directory argument (`$1`) and prints one number to stdout. Build from existing benchmarks if possible. Make it executable.
+**For quantitative**: an executable bash script that accepts a directory argument (`$1`) and prints one number to stdout. Build from existing benchmarks if possible. Make it executable.
 
-For qualitative: a placeholder that errors (the orchestrator handles qualitative eval differently).
+**For qualitative**: a bash script that calls the LLM-as-judge evaluator. Use this template:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+WORKER_DIR="$1"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+/opt/homebrew/bin/python3.13 "$SCRIPT_DIR/../../bin/eval_qualitative.py" "$WORKER_DIR" "$SCRIPT_DIR"
+```
+
+Make it executable. The `eval_qualitative.py` script reads the rubric from program.md, reads the editable files from the worker directory, and uses an LLM to score them.
 
 ### autoresearch/<name>/lockfile.txt
 
 Files the agents must not edit, one per line.
+
+### For qualitative/document projects: Create the initial document
+
+If the editable file is a document (e.g. `analysis.md`), write an initial version with a solid structure and seed content. This becomes the baseline that agents will iteratively improve. Don't leave it empty — give the agents something substantive to work with so the first round of experiments can focus on improving specific sections rather than writing from scratch.
+
+Place this file in the project directory at the path listed in "Editable files".
 
 ## Phase 3: Run the experiments
 
 After writing the files, ask: **"Ready to start? How many rounds? (default: 10, that's 30 experiments)"**
 
 When they confirm, find the orchestrator script. Search for it:
-1. Common locations: `~/Desktop/Projects/autoresearch/bin/orchestrator.py`, `~/autoresearch/bin/orchestrator.py`
-2. Search: `find ~ -path "*/autoresearch/bin/orchestrator.py" -maxdepth 4 2>/dev/null | head -1`
+1. Common locations: `~/Desktop/Projects/autoresearch-skills/bin/orchestrator.py`
+2. Search: `find ~ -path "*/autoresearch-skills/bin/orchestrator.py" -maxdepth 4 2>/dev/null | head -1`
 
 If `ANTHROPIC_API_KEY` is not in the environment, ask the human for it before running.
 
 Run it directly using the Bash tool (NOT in background — you need to see the output):
 
 ```bash
-ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY python3.13 <orchestrator_path> <rounds> . <name>
+ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY /opt/homebrew/bin/python3.13 <orchestrator_path> <rounds> . <name>
 ```
 
 Set the Bash timeout to 600000 (10 minutes).
@@ -106,3 +154,10 @@ While it runs, the output streams back to you. After each round, relay the key i
 ## Phase 4: Present results
 
 When the orchestrator finishes, invoke `/autoresearch:review` to present the results.
+
+## CRITICAL REMINDERS
+
+- **NEVER skip the orchestrator.** Do not do the work yourself. Do not spawn your own agents outside the orchestrator. The orchestrator IS the product.
+- **NEVER skip Phase 2.** You must write program.md, eval.sh, and lockfile.txt before running.
+- **NEVER skip Phase 3.** The iterative loop must run. One-shot answers defeat the purpose.
+- **Qualitative mode is real.** Research, analysis, documents — all go through the loop. The LLM judge scores them. Multiple rounds improve them. This is not just for code.
