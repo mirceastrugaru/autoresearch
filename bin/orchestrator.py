@@ -80,6 +80,7 @@ PLATEAU_THRESHOLD = 8
 REVALIDATE_EVERY = 10
 NOISE_THRESHOLD = 0.01
 WORKER_TIMEOUT_SEC = int(os.environ.get("AUTORESEARCH_WORKER_TIMEOUT", "900"))  # 15 min default
+MERGE_TIMEOUT_SEC = int(os.environ.get("AUTORESEARCH_MERGE_TIMEOUT", "300"))  # 5 min default
 RUNAWAY_TURN_THRESHOLD = int(os.environ.get("AUTORESEARCH_RUNAWAY_TURNS", "15"))
 LOG_BLOAT_THRESHOLD_BYTES = int(os.environ.get("AUTORESEARCH_LOG_BLOAT_BYTES", "51200"))  # 50KB
 TRACE_TOOL_RESULT_CAP = 4000
@@ -399,6 +400,101 @@ def validate_rubric(ar_dir: Path):
         sys.exit(1)
 
 
+def parse_vectors(ar_dir: Path) -> list[dict]:
+    """Parse research vectors from the 'Directions to explore' section of program.md.
+    Returns a list of {"id": "4.1", "title": "Customers don't actually need...", "body": "full text"}.
+    Returns empty list if no vectors found."""
+    text = (ar_dir / "program.md").read_text()
+    m = re.search(r"## Directions to explore\s*\n(.*?)(\n## |\Z)", text, re.DOTALL)
+    if not m:
+        return []
+    section = m.group(1)
+    # Split on ### Vector headers, then parse each chunk
+    vectors = []
+    parts = re.split(r"\n+(?=### Vector )", section)
+    for part in parts:
+        m = re.match(r"### Vector ([\d.]+):\s*(.+)\n(.*)", part.strip(), re.DOTALL)
+        if m:
+            vectors.append({
+                "id": m.group(1),
+                "title": m.group(2).strip(),
+                "body": m.group(3).strip(),
+            })
+    return vectors
+
+
+def build_coverage_matrix(ar_dir: Path, vectors: list[dict]) -> dict[str, list[str]]:
+    """Build a coverage matrix: {vector_id: [list of biases that have covered it]}.
+    Reads from log.jsonl, looking at worker assignment metadata."""
+    matrix = {v["id"]: [] for v in vectors}
+    log_path = ar_dir / "log.jsonl"
+    if not log_path.exists():
+        return matrix
+    for line in log_path.read_text().strip().splitlines():
+        try:
+            entry = json.loads(line)
+            vid = entry.get("assigned_vector")
+            bias = entry.get("role_bias")
+            if vid and bias and vid in matrix:
+                matrix[vid].append(bias)
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return matrix
+
+
+def assign_vectors(vectors: list[dict], parallelism: int, matrix: dict[str, list[str]]) -> list[dict]:
+    """Assign vectors to workers to fill coverage gaps.
+    Returns list of {"vector": dict, "bias": str} for each worker slot (1..parallelism).
+    Prioritizes spreading across different vectors first, then filling bias gaps within each."""
+    if not vectors:
+        return []
+
+    biases = ["CONSERVATIVE", "MODERATE", "AGGRESSIVE"]
+
+    # Sort vectors by total coverage (least covered first)
+    sorted_vectors = sorted(vectors, key=lambda v: len(matrix.get(v["id"], [])))
+
+    assignments = []
+    used_vectors_this_round: set[str] = set()
+
+    for _ in range(parallelism):
+        # Pick the least-covered vector not yet assigned this round (spread first)
+        best_v = None
+        best_b = None
+        best_score = (True, float("inf"), float("inf"), "~")  # worst possible
+
+        for v in sorted_vectors:
+            # Prefer vectors not yet used this round; among those, prefer least total coverage
+            already_this_round = v["id"] in used_vectors_this_round
+            total_coverage = len(matrix.get(v["id"], []))
+            covered_biases = set(matrix.get(v["id"], []))
+
+            # Find the best uncovered bias for this vector
+            for b in biases:
+                if (v["id"], b) in {(a["vector"]["id"], a["bias"]) for a in assignments}:
+                    continue  # already assigned this round
+                bias_count = sum(1 for x in matrix.get(v["id"], []) if x == b)
+                # Score: (used_this_round, total_coverage, bias_count, vector_id)
+                score = (already_this_round, total_coverage, bias_count, v["id"])
+                if score < best_score:
+                    best_score = score
+                    best_v = v
+                    best_b = b
+
+        if best_v and best_b:
+            assignments.append({"vector": best_v, "bias": best_b})
+            used_vectors_this_round.add(best_v["id"])
+        else:
+            # Fallback: wrap around
+            idx = len(assignments)
+            assignments.append({
+                "vector": vectors[idx % len(vectors)],
+                "bias": biases[idx % len(biases)],
+            })
+
+    return assignments
+
+
 def read_strategy(ar_dir: Path) -> str:
     """Read strategy from program.md. Returns 'competitive' or 'collaborative'.
     Backwards compat: if Strategy missing, infer from Mode."""
@@ -689,19 +785,38 @@ def revalidate_best(ar_dir: Path, state: dict):
 # ── Shared context builder (for prompt caching) ──────────────────────────────
 
 
-def _build_shared_context(ar_dir: Path, experiment_skill: str) -> str:
+def _build_shared_context(ar_dir: Path, experiment_skill: str, lightweight: bool = False) -> str:
     """Build a system prompt with shared context pre-loaded for cache efficiency.
 
     All workers in a round receive identical system prompt content, so workers
     2 and 3 get cache hits on the shared context instead of re-reading files.
     Only worker-specific content (exp ID, worker dir) stays in the user prompt.
+
+    If lightweight=True (collaborative mode), omit the full best document from the
+    system prompt. Workers only need the log and directions to discover new findings;
+    the merge agent handles document integration and is the only one that reads the
+    full document.
     """
     program = read_or(ar_dir / "program.md", "")
     findings = read_or(ar_dir / "findings.md", "")
     full_log = read_full_log(ar_dir)
     parking_lot = read_or(ar_dir / "parking_lot.md", "")
 
-    # Best document (the current baseline workers will improve)
+    if lightweight:
+        return (
+            f"{experiment_skill}\n\n"
+            f"---\n\n"
+            f"## SHARED CONTEXT (pre-loaded for all workers this round)\n\n"
+            f"**NOTE:** You are in lightweight collaborative mode. You do NOT have the full document — "
+            f"the merge agent handles document integration. Focus on discovering new findings. "
+            f"Use the log below to see what's been tried and avoid duplication.\n\n"
+            f"### program.md\n{program}\n\n"
+            f"### findings.md\n{findings}\n\n"
+            f"### log.jsonl (full history)\n{full_log}\n\n"
+            f"### parking_lot.md\n{parking_lot}"
+        )
+
+    # Full context (competitive mode or when lightweight is off)
     best_dir = ar_dir / "best"
     editable_files = parse_editable_files(ar_dir)
     best_docs = []
@@ -972,7 +1087,8 @@ async def main():
         # Injecting into system prompt means all 3 parallel workers share a cache hit
         # on this content instead of each reading it independently (saves ~70% input tokens
         # on the shared context for workers 2 and 3).
-        shared_context = _build_shared_context(ar_dir, experiment_skill)
+        is_collaborative = state.get("strategy", "competitive") == "collaborative"
+        shared_context = _build_shared_context(ar_dir, experiment_skill, lightweight=is_collaborative)
 
         # Snapshot editable files per worker BEFORE launch — used for authoritative
         # diff computation and change detection after workers finish.
@@ -982,9 +1098,25 @@ async def main():
             wdir = ar_dir / "workers" / f"worker-{i}"
             snapshots[i] = snapshot_files(wdir, editable_files_for_round)
 
+        # Vector-aware assignment (collaborative mode only): parse vectors and build
+        # a coverage matrix so the orchestrator distributes work across all research
+        # directions instead of letting workers self-select and converge.
+        vectors = parse_vectors(ar_dir) if is_collaborative else []
+        vector_assignments = []
+        if vectors:
+            coverage = build_coverage_matrix(ar_dir, vectors)
+            vector_assignments = assign_vectors(vectors, parallelism, coverage)
+            assignment_summary = [(a["vector"]["id"], a["bias"]) for a in vector_assignments]
+            print(f"  Vector assignments: {assignment_summary}")
+            dlog(ar_dir, "vector_assignments", round=round_num,
+                 assignments=assignment_summary,
+                 coverage={vid: len(biases) for vid, biases in coverage.items()})
+
         # Launch parallel workers
         tasks = []
         exp_ids = []
+        worker_vector_ids: list[str | None] = []  # per-worker assigned vector ID (or None)
+        worker_biases: list[str] = []  # per-worker bias label (CONSERVATIVE/MODERATE/AGGRESSIVE)
         for i in range(1, parallelism + 1):
             wdir = ar_dir / "workers" / f"worker-{i}"
             exp_num = state["experiment_count"] + i
@@ -1005,6 +1137,21 @@ async def main():
             ]
             bias = biases[(i - 1) % len(biases)]
 
+            # Vector-aware assignment override: if vectors were parsed, use the
+            # orchestrator's directed assignment instead of self-selected topics.
+            vector_directive = ""
+            assigned_vector_id = None
+            if vector_assignments and (i - 1) < len(vector_assignments):
+                va = vector_assignments[i - 1]
+                assigned_vector_id = va["vector"]["id"]
+                bias = f"{va['bias']} — orchestrator-assigned to Vector {va['vector']['id']}"
+                vector_directive = (
+                    f"\n\nASSIGNED VECTOR (mandatory): Focus on Vector {va['vector']['id']}: "
+                    f"{va['vector']['title']}\n"
+                    f"Research directions:\n{va['vector']['body']}\n"
+                    f"Do NOT work on other vectors this round — other workers are covering them."
+                )
+
             # If there are parking-lot entries, hand one to this worker to seed it.
             parking_seed = ""
             pl_idea: str | None = None
@@ -1018,6 +1165,11 @@ async def main():
                 pl_idea = pl_ideas[(round_num * parallelism + i) % len(pl_ideas)]
                 parking_seed = f"\nSuggested direction from parking_lot (consider but not required): {pl_idea}"
 
+            # Track per-worker assignment for log entries
+            worker_vector_ids.append(assigned_vector_id)
+            bias_label = bias.split(" ")[0]  # "CONSERVATIVE", "MODERATE", or "AGGRESSIVE"
+            worker_biases.append(bias_label)
+
             user_msg = (
                 f"Run experiment {exp_num} (ID: {exp_id}).\n"
                 f"Worker {i}/{parallelism}. Role bias: {bias}\n"
@@ -1029,6 +1181,7 @@ async def main():
                 f"Parent experiment: #{parent_exp}\n"
                 f"Time budget: {WORKER_TIMEOUT_SEC}s (hard limit — orchestrator will kill after)\n"
                 f"{parking_seed}"
+                f"{vector_directive}"
                 f"{guardrail_msg}\n\n"
                 f"All context (program.md, findings.md, log, parking_lot, current best) is in your system prompt.\n"
                 f"Write deferred ideas to {wdir}/parking_lot_{i}.txt.\n"
@@ -1266,6 +1419,8 @@ async def main():
                 "num_turns": results[i - 1][1].num_turns if not isinstance(results[i - 1], Exception) and results[i - 1][1] else 0,
                 "trace_path": f"traces/{exp_id_local}.jsonl",
                 "prompt_file": f"prompts/{exp_id_local}.txt",
+                "assigned_vector": worker_vector_ids[i - 1],
+                "role_bias": worker_biases[i - 1],
             }
             if eval_scores:
                 log_entry["eval_scores"] = eval_scores
@@ -1359,13 +1514,23 @@ async def main():
                 async def _run_merge(system_prompt=merge_skill, user_prompt=merge_user_msg,
                                      cwd=ar_dir, trace=merge_trace):
                     t = time.time()
-                    out, _ = await run_agent(
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        cwd=cwd,
-                        name="merge",
-                        trace_path=trace,
-                    )
+                    try:
+                        out, _ = await asyncio.wait_for(
+                            run_agent(
+                                system_prompt=system_prompt,
+                                user_prompt=user_prompt,
+                                cwd=cwd,
+                                name="merge",
+                                trace_path=trace,
+                            ),
+                            timeout=MERGE_TIMEOUT_SEC,
+                        )
+                    except asyncio.TimeoutError:
+                        elapsed_ms = int((time.time() - t) * 1000)
+                        print(f"  MERGE TIMEOUT after {MERGE_TIMEOUT_SEC}s — triggering fallback")
+                        dlog(ar_dir, "merge_timeout", timeout_sec=MERGE_TIMEOUT_SEC,
+                             elapsed_ms=elapsed_ms, trace_path=str(trace))
+                        return f"MERGE TIMEOUT after {MERGE_TIMEOUT_SEC}s", elapsed_ms
                     return out, int((time.time() - t) * 1000)
 
                 # Store passing workers for fallback (needed when merge resolves)
