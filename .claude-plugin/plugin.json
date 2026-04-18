@@ -1,7 +1,7 @@
 {
   "name": "autoresearch",
-  "version": "0.6.0",
-  "description": "Autonomous experimentation skill. Point it at code you want to optimize, give it a metric, and it runs parallel experiments — keeping what works, discarding what doesn't.",
+  "version": "0.7.0",
+  "description": "Autonomous experimentation skill for any goal — code, research, documents, analysis. Runs parallel experiments, keeps what works, discards what doesn't.",
   "author": {
     "name": "Mircea"
   },
