@@ -39,10 +39,13 @@ After your analysis, present a **complete research plan** in one message:
 
 - A short name for this initiative (slug format, e.g. `sort-optimization`, `api-latency`)
 - Here's what I think we're optimizing
+- Strategy: competitive or collaborative — and why
+- Measurement: quantitative or qualitative — and why
 - Here's how I'll measure it (eval script for code / rubric criteria for documents)
 - Here are the files the agents will edit
 - Here are the files that are off-limits
 - Here are the research directions I'd explore
+- Recommended: N workers, M rounds, estimated cost ~$X
 - Does this look right? Anything you'd change?
 
 **ONE follow-up, not a questionnaire.** The human confirms or adjusts, then you write the config files. That's it — two exchanges maximum.
@@ -54,7 +57,7 @@ Things you figure out yourself (do NOT ask the human):
 - **What's off limits**: Tests, configs, CI, build files, lockfiles, eval infrastructure.
 - **How to measure it**: For code — existing benchmarks or write an eval script. For documents — design a rubric with weighted criteria.
 - **Research directions**: Specific, actionable ideas for improvement.
-- **Parallelism**: Default 3. Never ask about this.
+- **Parallelism and rounds**: Recommend based on problem complexity and expected cost. Simple optimization: 3 workers, 5 rounds. Deep research: 3 workers, 10 rounds. Present estimate to human — they confirm or adjust.
 
 **Only ask the human when you genuinely cannot determine something from the code or context.**
 

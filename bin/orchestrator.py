@@ -428,25 +428,28 @@ def _build_shared_context(ar_dir: Path, experiment_skill: str) -> str:
 
 
 async def main():
-    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
-        print("Usage: orchestrator.py [rounds] [project-dir] [initiative-name]")
-        print()
-        print("  rounds           Number of experiment rounds (default: 10)")
-        print("                   Each round runs N parallel experiments (default N=3)")
-        print("  project-dir      Path to project with autoresearch/ config (default: cwd)")
-        print("  initiative-name  Name of the research initiative (default: auto-detect)")
-        print("                   Each initiative lives in autoresearch/<name>/")
-        print()
-        print("Environment:")
-        print("  ANTHROPIC_API_KEY     Required. Get from console.anthropic.com/settings/keys")
-        print("  AUTORESEARCH_MODEL    Model to use (default: claude-sonnet-4-6)")
-        print()
-        print("Setup: run /autoresearch:design in Claude Code first to create config files.")
-        sys.exit(0)
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="orchestrator.py",
+        description="Autoresearch orchestrator — runs parallel experiment agents.",
+    )
+    parser.add_argument("rounds", nargs="?", type=int, default=10,
+                        help="Number of experiment rounds (default: 10)")
+    parser.add_argument("project_dir", nargs="?", default=None,
+                        help="Path to project with autoresearch/ config (default: cwd)")
+    parser.add_argument("initiative", nargs="?", default=None,
+                        help="Initiative name under autoresearch/ (default: auto-detect)")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="Override parallelism from program.md")
+    parser.add_argument("--max-cost", type=float, default=None,
+                        help="Stop when total API cost exceeds this amount (USD)")
+    args = parser.parse_args()
 
-    max_rounds = int(sys.argv[1]) if len(sys.argv) > 1 else 10
-    project_dir = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else Path.cwd()
-    initiative_name = sys.argv[3] if len(sys.argv) > 3 else None
+    max_rounds = args.rounds
+    project_dir = Path(args.project_dir).resolve() if args.project_dir else Path.cwd()
+    initiative_name = args.initiative
+    workers_override = args.workers
+    max_cost = args.max_cost
 
     # Find or select the initiative
     ar_base = project_dir / "autoresearch"
@@ -506,16 +509,26 @@ async def main():
         state = read_state(ar_dir)
         state["eval_mode"] = read_eval_mode(ar_dir)
         state["strategy"] = read_strategy(ar_dir)
-        state["parallelism"] = read_parallelism(ar_dir)
+        state["parallelism"] = workers_override if workers_override else read_parallelism(ar_dir)
         state["direction"] = read_direction(ar_dir)
         print(f"  Round: {state['round']} / Experiments: {state['experiment_count']} / Best: {state['best_score']}")
         print(f"  Branch: {state['active_branch']} / Discard streak: {state['discard_streak']}")
         print(f"  Strategy: {state['strategy']} / Measurement: {state['eval_mode']}")
+        if workers_override:
+            print(f"  Workers overridden: {workers_override}")
     else:
         eval_mode = read_eval_mode(ar_dir)
         strategy = read_strategy(ar_dir)
-        parallelism = read_parallelism(ar_dir)
+        parallelism = workers_override if workers_override else read_parallelism(ar_dir)
         direction = read_direction(ar_dir)
+
+        # Validate combination
+        if strategy == "collaborative" and eval_mode == "quantitative":
+            print("ERROR: collaborative + quantitative is not a valid combination.")
+            print("  collaborative requires qualitative measurement (LLM judge with hard gates).")
+            print("  Use competitive + quantitative, or collaborative + qualitative.")
+            sys.exit(1)
+
         print(f"Strategy: {strategy} / Measurement: {eval_mode} / Parallelism: {parallelism} / Direction: {direction}")
         print("\n--- INIT ---")
 
@@ -552,8 +565,16 @@ async def main():
         state["round"] = round_num
         parallelism = state["parallelism"]
 
+        # Budget check
+        if max_cost is not None and total_cost >= max_cost:
+            print(f"\n  Budget exhausted: ${total_cost:.4f} >= max_cost ${max_cost:.2f}. Stopping.")
+            dlog(ar_dir, "budget_exhausted", total_cost=total_cost, max_cost=max_cost)
+            break
+
         print(f"\n{'=' * 50}")
         print(f"  ROUND {round_num}/{max_rounds}  (experiments: {state['experiment_count']}, best: {state['best_score']:.2f})")
+        if max_cost is not None:
+            print(f"  Cost so far: ${total_cost:.4f} / ${max_cost:.2f}")
         print(f"{'=' * 50}")
         dlog(ar_dir, "round_start", round=round_num, max_rounds=max_rounds,
              experiments=state["experiment_count"], best_score=state["best_score"],
