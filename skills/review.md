@@ -36,7 +36,7 @@ Read these files from `autoresearch/<name>/`:
 - `state.json` — orchestrator state
 - `branches.jsonl` — branch history
 - `findings.md` — auto-generated summary (if exists)
-- `parking_lot.md` — deferred ideas (if exists)
+- `roadmap.md` — curated directions (if exists)
 
 Present a concise summary:
 

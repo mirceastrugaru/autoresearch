@@ -4,15 +4,44 @@ Autonomous experimentation for any codebase or research task. Point it at someth
 
 ### How it works
 
-- **You define a program** — a target (what to improve), editable files, directions to explore, and a scoring rubric
-- **Each round**, the orchestrator spawns N parallel Claude instances (workers) via the Agent SDK, each with a different role bias (conservative, moderate, aggressive)
-- **Workers research and edit** the target document or code, then get scored by an LLM judge against a rubric with hard gates (factual correctness, evidence quality) and soft gates (domain-specific qualities you define)
-- **In collaborative mode**, all workers that pass hard gates get merged by a separate merge agent into one improved document. In competitive mode, the highest scorer wins
+- **You define a program** — a target (what to investigate), editable files, directions to prove and disprove, and a scoring rubric
+- **Each round**, the orchestrator spawns N parallel Claude instances (workers) via the Agent SDK — half pro (arguing for the thesis), half con (arguing against)
+- **Workers produce write-ups** with evidence for or against their assigned direction, scored by an LLM judge against a rubric with hard gates (factual correctness, evidence quality) and soft gates (domain-specific qualities you define)
+- **In qualitative collaborative mode**, the judge scores all write-ups, synthesizes pro and con evidence into the next main document, and curates the roadmap — all in one call. In competitive mode, the highest scorer wins
 - **The loop repeats** for a configurable number of rounds, with convergence detection that pivots strategy when progress stalls
 - **A web monitor** serves a real-time dashboard (SSE) showing worker status, hypotheses, experiment log, and the evolving best document
 - Everything runs headless through Claude Code — no API keys needed
 
 Works on code (quantitative — eval script returns a number) and documents (qualitative — LLM judge scores against a rubric with hard/soft gates).
+
+## When this fits
+
+The tool is built around a pro/con loop: some workers try to support or improve the target, others try to disprove or break it. It fits whenever the question is **"is this true / is this right / will this work"**. It fits poorly when the question is **"just build this."**
+
+**Strong fits**
+
+- **Due diligence.** Bull case vs. bear case on a company, market, or investment thesis. Con-workers surface risks the pro-side glossed over. Output includes a list of attempted attacks and whether the thesis survived them.
+- **Product rebuilds from source.** Pro-workers document architecture and intent; con-workers hunt for undocumented behavior, implicit coupling, and accumulated edge cases the rebuild would miss. The con-log is the landmine catalog.
+- **Architecture decisions (ADRs).** Pro-workers build the case for each option, con-workers attack each. Output: a decision with counter-arguments already addressed. Better than a human writing an ADR alone — humans rarely steelman the option they've already dismissed.
+- **Security review / threat modeling.** Literal red team / blue team. Pro argues the design is secure, con attacks it. Con-workers have unlimited productive attack surface.
+- **Large PR or design-doc review.** Pro identifies what works, con hunts bugs, edge cases, perf regressions, API misuse. Scales past human reviewer fatigue.
+- **Migration planning.** Pro catalogs what maps cleanly to the new system, con finds what breaks (transactions, query patterns, assumptions baked into the old schema).
+- **Dependency / framework evaluation.** Pro reads docs and builds the case; con reads issues, changelogs, and post-mortems to build the anti-case.
+- **Tech debt triage.** Pro argues each item is worth fixing; con argues it's not, or the fix makes things worse. Most tech-debt discussions are all-pro — this forces the other side.
+
+**Decent fits**
+
+- **Performance investigation** (usually better handled by quantitative mode with an eval script).
+- **Test strategy / coverage audits.**
+- **Complex incident post-mortems** where the obvious root cause isn't the real one.
+- **API design**, when you want adversarial review more than user iteration.
+
+**Weak fits — use a normal agent instead**
+
+- **Writing new features from a spec.** No thesis to attack.
+- **Bug fixing a known bug.** The fix is the answer.
+- **Mechanical refactoring.**
+- **Documenting existing code** (pro-only work; con-workers have nothing real to attack).
 
 ## Install
 
@@ -101,14 +130,19 @@ Each initiative lives in `autoresearch/<name>/` with:
 {maximize or minimize}
 
 ## Parallelism
-3
+2
 
 ## Editable files
 - {file1}
 - {file2}
 
-## Directions to explore
-{specific ideas to try}
+## Directions to prove
+- {direction supporting the thesis}
+- {another direction}
+
+## Directions to disprove
+- {direction challenging the thesis}
+- {another direction}
 ```
 
 Two default combinations:

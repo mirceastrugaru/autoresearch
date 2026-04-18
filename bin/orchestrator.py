@@ -42,7 +42,7 @@ def preflight():
 
     # Prompt templates
     prompts_dir = Path(__file__).parent.parent / "prompts"
-    for name in ("init.md", "experiment.md", "summarize.md", "merge.md"):
+    for name in ("init.md", "pro.md", "con.md", "summarize.md", "merge.md"):
         if not (prompts_dir / name).exists():
             errors.append(f"Missing prompt template: {prompts_dir / name}")
 
@@ -55,7 +55,8 @@ def preflight():
         sys.exit(1)
 
 
-preflight()
+if __name__ == "__main__" or "orchestrator" in sys.argv[0]:
+    preflight()
 
 from claude_agent_sdk import (
     query,
@@ -68,6 +69,21 @@ from claude_agent_sdk import (
     ThinkingBlock,
     ToolUseBlock,
     ToolResultBlock,
+)
+
+from bin.program_parser import (
+    parse_editable_files,
+    read_eval_mode,
+    read_parallelism,
+    read_direction,
+    read_strategy,
+    validate_rubric,
+    parse_roadmap,
+    build_coverage_matrix,
+    read_or,
+    read_state,
+    write_state,
+    read_full_log,
 )
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -320,226 +336,43 @@ async def run_agent(
     return result_text, result_msg
 
 
-# ── Program.md parsing ───────────────────────────────────────────────────────
+# ── Program.md parsing (imported from program_parser.py) ───────────────────
 
 
-def parse_editable_files(ar_dir: Path) -> list[str]:
-    text = (ar_dir / "program.md").read_text()
-    m = re.search(r"## Editable files\s*\n(.*?)(\n##|\Z)", text, re.DOTALL)
-    if not m:
-        return []
-    return [
-        line.strip().lstrip("- ")
-        for line in m.group(1).strip().splitlines()
-        if line.strip()
-    ]
-
-
-def read_eval_mode(ar_dir: Path) -> str:
-    text = (ar_dir / "program.md").read_text()
-    m = re.search(r"## Mode\s*\n(\w+)", text)
-    return m.group(1) if m else "quantitative"
-
-
-def read_parallelism(ar_dir: Path) -> int:
-    text = (ar_dir / "program.md").read_text()
-    m = re.search(r"## Parallelism\s*\n(\d+)", text)
-    return int(m.group(1)) if m else 3
-
-
-def read_direction(ar_dir: Path) -> str:
-    """Read optimization direction from program.md. Returns 'maximize' or 'minimize'."""
-    text = (ar_dir / "program.md").read_text()
-    m = re.search(r"## Direction\s*\n(\w+)", text)
-    return m.group(1).lower() if m else "maximize"
-
-
-REQUIRED_HARD_GATES = {"correctness", "evidence"}
-UNIVERSAL_SOFT_GATES = {"technical_specificity", "analytical_reasoning", "causal_implications", "investigative_effort"}
-
-
-def validate_rubric(ar_dir: Path):
-    """Enforce rubric structure: exactly the required hard gates, universal soft gates present.
-    Raises SystemExit if invalid. Only called for qualitative initiatives."""
-    text = (ar_dir / "program.md").read_text()
-    m = re.search(r"## Rubric\s*\n(.*?)(\n##|\Z)", text, re.DOTALL)
-    if not m:
-        print("ERROR: program.md has no ## Rubric section (required for qualitative measurement).")
-        sys.exit(1)
-
-    rubric = m.group(1)
-
-    # Parse hard gates
-    hard_section = re.search(r"Hard gates.*?:\s*\n(.*?)(?=\nSoft gates|\Z)", rubric, re.DOTALL)
-    if not hard_section:
-        print("ERROR: Rubric missing 'Hard gates' section.")
-        sys.exit(1)
-    hard_gates = set(re.findall(r"-\s*(\w+):", hard_section.group(1)))
-
-    extra = hard_gates - REQUIRED_HARD_GATES
-    missing = REQUIRED_HARD_GATES - hard_gates
-    if extra:
-        print(f"ERROR: Rubric contains unauthorized hard gates: {extra}")
-        print(f"  Only allowed: {REQUIRED_HARD_GATES}")
-        print(f"  Remove them from program.md and restart.")
-        sys.exit(1)
-    if missing:
-        print(f"ERROR: Rubric missing required hard gates: {missing}")
-        sys.exit(1)
-
-    # Parse soft gates — universal four must be present
-    soft_section = re.search(r"Soft gates.*?:\s*\n(.*?)(?=\nScore:|\Z)", rubric, re.DOTALL)
-    if not soft_section:
-        print("ERROR: Rubric missing 'Soft gates' section.")
-        sys.exit(1)
-    soft_gates = set(re.findall(r"-\s*(\w+):", soft_section.group(1)))
-    missing_soft = UNIVERSAL_SOFT_GATES - soft_gates
-    if missing_soft:
-        print(f"ERROR: Rubric missing universal soft gates: {missing_soft}")
-        print(f"  These must always be present: {UNIVERSAL_SOFT_GATES}")
-        sys.exit(1)
-
-
-def parse_vectors(ar_dir: Path) -> list[dict]:
-    """Parse research vectors from the 'Directions to explore' section of program.md.
-    Returns a list of {"id": "4.1", "title": "Customers don't actually need...", "body": "full text"}.
-    Returns empty list if no vectors found."""
-    text = (ar_dir / "program.md").read_text()
-    m = re.search(r"## Directions to explore\s*\n(.*?)(\n## |\Z)", text, re.DOTALL)
-    if not m:
-        return []
-    section = m.group(1)
-    # Split on ### Vector headers, then parse each chunk
-    vectors = []
-    parts = re.split(r"\n+(?=### Vector )", section)
-    for part in parts:
-        m = re.match(r"### Vector ([\d.]+):\s*(.+)\n(.*)", part.strip(), re.DOTALL)
-        if m:
-            vectors.append({
-                "id": m.group(1),
-                "title": m.group(2).strip(),
-                "body": m.group(3).strip(),
-            })
-    return vectors
-
-
-def build_coverage_matrix(ar_dir: Path, vectors: list[dict]) -> dict[str, list[str]]:
-    """Build a coverage matrix: {vector_id: [list of biases that have covered it]}.
-    Reads from log.jsonl, looking at worker assignment metadata."""
-    matrix = {v["id"]: [] for v in vectors}
-    log_path = ar_dir / "log.jsonl"
-    if not log_path.exists():
-        return matrix
-    for line in log_path.read_text().strip().splitlines():
-        try:
-            entry = json.loads(line)
-            vid = entry.get("assigned_vector")
-            bias = entry.get("role_bias")
-            if vid and bias and vid in matrix:
-                matrix[vid].append(bias)
-        except (json.JSONDecodeError, KeyError):
-            continue
-    return matrix
-
-
-def assign_vectors(vectors: list[dict], parallelism: int, matrix: dict[str, list[str]]) -> list[dict]:
-    """Assign vectors to workers to fill coverage gaps.
-    Returns list of {"vector": dict, "bias": str} for each worker slot (1..parallelism).
-    Prioritizes spreading across different vectors first, then filling bias gaps within each."""
-    if not vectors:
+def assign_directions(directions: list[dict], parallelism: int, matrix: dict[str, int]) -> list[dict]:
+    """Assign directions to workers. First half pro, second half con.
+    Returns list of {"direction": dict, "stance": "pro"|"con"} for each worker slot.
+    Pulls least-covered directions first."""
+    if not directions:
         return []
 
-    biases = ["CONSERVATIVE", "MODERATE", "AGGRESSIVE"]
+    half = parallelism // 2
+    prove_dirs = [d for d in directions if d["stance"] == "prove"]
+    disprove_dirs = [d for d in directions if d["stance"] == "disprove"]
 
-    # Sort vectors by total coverage (least covered first)
-    sorted_vectors = sorted(vectors, key=lambda v: len(matrix.get(v["id"], [])))
+    # Sort by coverage (least covered first), then by priority (lower = higher priority)
+    prove_sorted = sorted(prove_dirs, key=lambda d: (matrix.get(d["id"], 0), d["priority"]))
+    disprove_sorted = sorted(disprove_dirs, key=lambda d: (matrix.get(d["id"], 0), d["priority"]))
 
     assignments = []
-    used_vectors_this_round: set[str] = set()
-    used_biases_this_round: list[str] = []  # ordered; count used to spread bias
-
-    for _ in range(parallelism):
-        # Pick the least-covered vector not yet assigned this round (spread first)
-        best_v = None
-        best_b = None
-        best_score = (True, float("inf"), float("inf"), float("inf"), "~")  # worst possible
-
-        for v in sorted_vectors:
-            # Prefer vectors not yet used this round; among those, prefer least total coverage
-            already_this_round = v["id"] in used_vectors_this_round
-            total_coverage = len(matrix.get(v["id"], []))
-
-            # Find the best uncovered bias for this vector
-            for b in biases:
-                if (v["id"], b) in {(a["vector"]["id"], a["bias"]) for a in assignments}:
-                    continue  # already assigned this round
-                bias_count = sum(1 for x in matrix.get(v["id"], []) if x == b)
-                # Penalize biases already chosen for other workers this round so
-                # worker-1/2/3 spread across CONSERVATIVE/MODERATE/AGGRESSIVE
-                # instead of all defaulting to CONSERVATIVE on cold-start rounds.
-                round_bias_count = used_biases_this_round.count(b)
-                score = (already_this_round, total_coverage, round_bias_count, bias_count, v["id"])
-                if score < best_score:
-                    best_score = score
-                    best_v = v
-                    best_b = b
-
-        if best_v and best_b:
-            assignments.append({"vector": best_v, "bias": best_b})
-            used_vectors_this_round.add(best_v["id"])
-            used_biases_this_round.append(best_b)
+    for i in range(half):
+        if prove_sorted:
+            d = prove_sorted[i % len(prove_sorted)]
         else:
-            # Fallback: wrap around
-            idx = len(assignments)
-            assignments.append({
-                "vector": vectors[idx % len(vectors)],
-                "bias": biases[idx % len(biases)],
-            })
+            d = directions[i % len(directions)]
+        assignments.append({"direction": d, "stance": "pro"})
+
+    for i in range(half):
+        if disprove_sorted:
+            d = disprove_sorted[i % len(disprove_sorted)]
+        else:
+            d = directions[i % len(directions)]
+        assignments.append({"direction": d, "stance": "con"})
 
     return assignments
 
 
-def read_strategy(ar_dir: Path) -> str:
-    """Read strategy from program.md. Returns 'competitive' or 'collaborative'.
-    Backwards compat: if Strategy missing, infer from Mode."""
-    text = (ar_dir / "program.md").read_text()
-    m = re.search(r"## Strategy\s*\n(\w+)", text)
-    if m:
-        return m.group(1).lower()
-    # backwards compat: qualitative → collaborative, quantitative → competitive
-    mode = read_eval_mode(ar_dir)
-    return "collaborative" if mode == "qualitative" else "competitive"
-
-
-# ── File helpers ─────────────────────────────────────────────────────────────
-
-
-def read_or(path: Path, default: str = "") -> str:
-    try:
-        return path.read_text()
-    except FileNotFoundError:
-        return default
-
-
-def read_full_log(ar_dir: Path) -> str:
-    p = ar_dir / "log.jsonl"
-    if not p.exists():
-        return "none yet"
-    text = p.read_text().strip()
-    return text if text else "none yet"
-
-
-# ── State management ─────────────────────────────────────────────────────────
-
-
-def read_state(ar_dir: Path) -> dict:
-    with open(ar_dir / "state.json") as f:
-        return json.load(f)
-
-
-def write_state(ar_dir: Path, state: dict):
-    with open(ar_dir / "state.json", "w") as f:
-        json.dump(state, f, indent=2)
+# read_strategy, read_or, read_full_log, read_state, write_state — imported from program_parser
 
 
 def append_log(ar_dir: Path, entry: dict):
@@ -571,8 +404,9 @@ WORKER_META_FILES = {
     "experiment_id.txt", "experiment_id_output.txt",
     "score.txt", "status.txt", "hypothesis.txt",
     "diff.txt", "parent.txt", "summary.txt", "eval_scores.json",
+    "writeup.md", "roadmap_append.md",
 }
-WORKER_META_PREFIXES = ("parking_lot_",)
+WORKER_META_PREFIXES = ("artifact",)
 
 # Files no worker may ever produce/modify — orchestrator-owned state.
 FORBIDDEN_BASENAMES = {
@@ -708,20 +542,16 @@ def promote_worker(wdir: Path, ar_dir: Path, active_branch: str):
             shutil.copy2(src, dest)
 
 
-def merge_parking_lots(ar_dir: Path, parallelism: int):
-    """Merge per-worker parking lot files into the shared parking_lot.md."""
-    new_entries = []
+def collect_roadmap_proposals(ar_dir: Path, parallelism: int) -> str:
+    """Collect roadmap_append.md from all worker dirs. Returns combined text."""
+    proposals = []
     for i in range(1, parallelism + 1):
-        wfile = ar_dir / "workers" / f"worker-{i}" / f"parking_lot_{i}.txt"
+        wfile = ar_dir / "workers" / f"worker-{i}" / "roadmap_append.md"
         if wfile.exists():
             text = wfile.read_text().strip()
             if text:
-                new_entries.append(text)
-
-    if new_entries:
-        existing = read_or(ar_dir / "parking_lot.md", "# Parking Lot\n\nDeferred ideas.\n")
-        with open(ar_dir / "parking_lot.md", "w") as f:
-            f.write(existing.rstrip() + "\n\n" + "\n\n".join(new_entries) + "\n")
+                proposals.append(f"--- Worker {i} ---\n{text}")
+    return "\n\n".join(proposals) if proposals else ""
 
 
 def cleanup_workers(ar_dir: Path):
@@ -789,56 +619,40 @@ def revalidate_best(ar_dir: Path, state: dict):
 # ── Shared context builder (for prompt caching) ──────────────────────────────
 
 
-def _build_shared_context(ar_dir: Path, experiment_skill: str, lightweight: bool = False) -> str:
+def _build_shared_context(ar_dir: Path, skill_text: str, is_qualitative: bool = False) -> str:
     """Build a system prompt with shared context pre-loaded for cache efficiency.
 
-    All workers in a round receive identical system prompt content, so workers
-    2 and 3 get cache hits on the shared context instead of re-reading files.
-    Only worker-specific content (exp ID, worker dir) stays in the user prompt.
+    All workers of the same stance in a round receive identical system prompt content,
+    so the second worker gets cache hits on the shared context.
+    Only worker-specific content (exp ID, worker dir, assigned direction) stays in the user prompt.
 
-    If lightweight=True (collaborative mode), omit the full best document from the
-    system prompt. Workers only need the log and directions to discover new findings;
-    the merge agent handles document integration and is the only one that reads the
-    full document.
+    For qualitative mode, workers produce write-ups only — they don't need to see the full
+    main document in detail, but they need enough to know what exists. Include the document
+    so workers can reference and argue about its content.
     """
     program = read_or(ar_dir / "program.md", "")
     findings = read_or(ar_dir / "findings.md", "")
     full_log = read_full_log(ar_dir)
-    parking_lot = read_or(ar_dir / "parking_lot.md", "")
+    roadmap = read_or(ar_dir / "roadmap.md", "")
 
-    if lightweight:
-        return (
-            f"{experiment_skill}\n\n"
-            f"---\n\n"
-            f"## SHARED CONTEXT (pre-loaded for all workers this round)\n\n"
-            f"**NOTE:** You are in lightweight collaborative mode. You do NOT have the full document — "
-            f"the merge agent handles document integration. Focus on discovering new findings. "
-            f"Use the log below to see what's been tried and avoid duplication.\n\n"
-            f"### program.md\n{program}\n\n"
-            f"### findings.md\n{findings}\n\n"
-            f"### log.jsonl (full history)\n{full_log}\n\n"
-            f"### parking_lot.md\n{parking_lot}"
-        )
-
-    # Full context (competitive mode or when lightweight is off)
     best_dir = ar_dir / "best"
     editable_files = parse_editable_files(ar_dir)
     best_docs = []
     for f in editable_files:
         p = best_dir / f
         if p.exists():
-            best_docs.append(f"=== CURRENT BEST: {f} ===\n{p.read_text()}")
-    best_content = "\n\n".join(best_docs) if best_docs else ""
+            best_docs.append(f"=== CURRENT MAIN DOCUMENT: {f} ===\n{p.read_text()}")
+    best_content = "\n\n".join(best_docs) if best_docs else "[no document yet]"
 
     return (
-        f"{experiment_skill}\n\n"
+        f"{skill_text}\n\n"
         f"---\n\n"
         f"## SHARED CONTEXT (pre-loaded for all workers this round)\n\n"
         f"### program.md\n{program}\n\n"
         f"### findings.md\n{findings}\n\n"
         f"### log.jsonl (full history)\n{full_log}\n\n"
-        f"### parking_lot.md\n{parking_lot}\n\n"
-        f"### Current best document\n{best_content}"
+        f"### roadmap.md\n{roadmap}\n\n"
+        f"### Current main document\n{best_content}"
     )
 
 
@@ -908,7 +722,8 @@ async def main():
     # Load skill texts
     prompts_dir = Path(__file__).parent.parent / "prompts"
     init_skill = (prompts_dir / "init.md").read_text()
-    experiment_skill = (prompts_dir / "experiment.md").read_text()
+    pro_skill = (prompts_dir / "pro.md").read_text()
+    con_skill = (prompts_dir / "con.md").read_text()
     summarize_skill = (prompts_dir / "summarize.md").read_text()
     merge_skill = (prompts_dir / "merge.md").read_text()
 
@@ -988,12 +803,20 @@ async def main():
 
     round_num = state["round"]
     total_cost = 0.0
-    pending_merge: "asyncio.Task | None" = None  # collaborative merge running concurrently with next round's workers
-
     while round_num < max_rounds:
         round_num += 1
         state["round"] = round_num
         parallelism = state["parallelism"]
+
+        # Pause check
+        pause_sentinel = ar_dir / "pause_requested"
+        if pause_sentinel.exists():
+            print(f"\n  Paused. Waiting for resume...")
+            dlog(ar_dir, "paused", round=round_num)
+            while pause_sentinel.exists():
+                time.sleep(2)
+            print(f"  Resumed.")
+            dlog(ar_dir, "resumed", round=round_num)
 
         # Budget check
         if max_cost is not None and total_cost >= max_cost:
@@ -1058,7 +881,7 @@ async def main():
                 f"You are on a new branch. You MUST:\n"
                 f"1. Identify what assumption ALL of the above failures share.\n"
                 f"2. INVERT that assumption as your hypothesis — not a minor variant.\n"
-                f"3. Check parking_lot.md (provided in system prompt) for deferred ideas.\n"
+                f"3. Check roadmap.md (provided in system prompt) for untried directions.\n"
                 f"Do NOT try anything resembling the failed experiments above."
             )
             dlog(ar_dir, "guardrail_built", round=round_num, trigger="pivot",
@@ -1081,18 +904,14 @@ async def main():
                 f"\nWARNING: {state['discard_streak']} consecutive rounds with no improvement.\n"
                 f"Recent failed approaches:\n{failures_text}\n"
                 f"Before your next hypothesis, identify what these share. Try inverting that assumption, "
-                f"or pick an untested idea from parking_lot.md (provided in system prompt)."
+                f"or pick an untested direction from roadmap.md (provided in system prompt)."
             )
             dlog(ar_dir, "guardrail_built", round=round_num, trigger="warn",
                  discard_streak=state["discard_streak"],
                  failures=recent_failures, guardrail_text=guardrail_msg)
 
-        # Pre-load shared context for caching — same for all workers this round.
-        # Injecting into system prompt means all 3 parallel workers share a cache hit
-        # on this content instead of each reading it independently (saves ~70% input tokens
-        # on the shared context for workers 2 and 3).
         is_collaborative = state.get("strategy", "competitive") == "collaborative"
-        shared_context = _build_shared_context(ar_dir, experiment_skill, lightweight=is_collaborative)
+        is_qualitative = state.get("eval_mode", "quantitative") == "qualitative"
 
         # Snapshot editable files per worker BEFORE launch — used for authoritative
         # diff computation and change detection after workers finish.
@@ -1102,25 +921,23 @@ async def main():
             wdir = ar_dir / "workers" / f"worker-{i}"
             snapshots[i] = snapshot_files(wdir, editable_files_for_round)
 
-        # Vector-aware assignment (collaborative mode only): parse vectors and build
-        # a coverage matrix so the orchestrator distributes work across all research
-        # directions instead of letting workers self-select and converge.
-        vectors = parse_vectors(ar_dir) if is_collaborative else []
-        vector_assignments = []
-        if vectors:
-            coverage = build_coverage_matrix(ar_dir, vectors)
-            vector_assignments = assign_vectors(vectors, parallelism, coverage)
-            assignment_summary = [(a["vector"]["id"], a["bias"]) for a in vector_assignments]
-            print(f"  Vector assignments: {assignment_summary}")
-            dlog(ar_dir, "vector_assignments", round=round_num,
+        # Parse roadmap and assign directions to workers (pro/con split).
+        directions = parse_roadmap(ar_dir)
+        direction_assignments = []
+        if directions:
+            coverage = build_coverage_matrix(ar_dir, directions)
+            direction_assignments = assign_directions(directions, parallelism, coverage)
+            assignment_summary = [(a["direction"]["id"], a["stance"]) for a in direction_assignments]
+            print(f"  Direction assignments: {assignment_summary}")
+            dlog(ar_dir, "direction_assignments", round=round_num,
                  assignments=assignment_summary,
-                 coverage={vid: len(biases) for vid, biases in coverage.items()})
+                 coverage={did: cnt for did, cnt in coverage.items()})
 
         # Launch parallel workers
         tasks = []
         exp_ids = []
-        worker_vector_ids: list[str | None] = []  # per-worker assigned vector ID (or None)
-        worker_biases: list[str] = []  # per-worker bias label (CONSERVATIVE/MODERATE/AGGRESSIVE)
+        worker_direction_ids: list[str | None] = []
+        worker_stances: list[str] = []
         for i in range(1, parallelism + 1):
             wdir = ar_dir / "workers" / f"worker-{i}"
             exp_num = state["experiment_count"] + i
@@ -1128,55 +945,36 @@ async def main():
             exp_ids.append(exp_id)
             (wdir / "experiment_id.txt").write_text(exp_id)
 
-            # Determine parent experiment (the last promoted experiment, or 0 for baseline)
             parent_exp = state.get("last_promoted_experiment", 0)
 
-            # Diversification: spread exploration across workers in the same round.
-            # Biases are advisory — they break symmetry so workers don't collide on the
-            # obvious first move. See program.md meta-optimize notes re: wasted parallelism.
-            biases = [
-                "CONSERVATIVE — small, safe changes. Refactor, clarify, tighten. Low variance.",
-                "MODERATE — substantive but proven approach. Swap algorithm, add optimization with known payoff.",
-                "AGGRESSIVE — novel or untried direction. High variance. Check parking_lot first.",
-            ]
-            bias = biases[(i - 1) % len(biases)]
+            # Determine stance and assigned direction
+            assigned_direction_id = None
+            assigned_direction_title = ""
+            stance = "pro" if i <= parallelism // 2 else "con"
+            if direction_assignments and (i - 1) < len(direction_assignments):
+                da = direction_assignments[i - 1]
+                stance = da["stance"]
+                assigned_direction_id = da["direction"]["id"]
+                assigned_direction_title = da["direction"]["title"]
 
-            # Vector-aware assignment override: if vectors were parsed, use the
-            # orchestrator's directed assignment instead of self-selected topics.
-            vector_directive = ""
-            assigned_vector_id = None
-            if vector_assignments and (i - 1) < len(vector_assignments):
-                va = vector_assignments[i - 1]
-                assigned_vector_id = va["vector"]["id"]
-                bias = f"{va['bias']} — orchestrator-assigned to Vector {va['vector']['id']}"
-                vector_directive = (
-                    f"\n\nASSIGNED VECTOR (mandatory): Focus on Vector {va['vector']['id']}: "
-                    f"{va['vector']['title']}\n"
-                    f"Research directions:\n{va['vector']['body']}\n"
-                    f"Do NOT work on other vectors this round — other workers are covering them."
+            worker_direction_ids.append(assigned_direction_id)
+            worker_stances.append(stance)
+
+            # Select the right prompt template for this worker's stance
+            worker_skill = pro_skill if stance == "pro" else con_skill
+            worker_context = _build_shared_context(ar_dir, worker_skill, is_qualitative=is_qualitative)
+
+            direction_directive = ""
+            if assigned_direction_title:
+                stance_label = "prove" if stance == "pro" else "disprove"
+                direction_directive = (
+                    f"\n\nASSIGNED DIRECTION ({stance_label}): {assigned_direction_title}\n"
+                    f"Focus on this direction only. Other workers are covering other directions."
                 )
-
-            # If there are parking-lot entries, hand one to this worker to seed it.
-            parking_seed = ""
-            pl_idea: str | None = None
-            pl_text = read_or(ar_dir / "parking_lot.md", "").strip()
-            pl_ideas = [
-                line.strip().lstrip("- ").strip()
-                for line in pl_text.splitlines()
-                if line.strip().startswith("- ")
-            ]
-            if pl_ideas:
-                pl_idea = pl_ideas[(round_num * parallelism + i) % len(pl_ideas)]
-                parking_seed = f"\nSuggested direction from parking_lot (consider but not required): {pl_idea}"
-
-            # Track per-worker assignment for log entries
-            worker_vector_ids.append(assigned_vector_id)
-            bias_label = bias.split(" ")[0]  # "CONSERVATIVE", "MODERATE", or "AGGRESSIVE"
-            worker_biases.append(bias_label)
 
             user_msg = (
                 f"Run experiment {exp_num} (ID: {exp_id}).\n"
-                f"Worker {i}/{parallelism}. Role bias: {bias}\n"
+                f"Worker {i}/{parallelism}. Stance: {stance.upper()}\n"
                 f"Worker directory: {wdir}\n"
                 f"Autoresearch directory: {ar_dir}\n"
                 f"Eval command: bash {ar_dir}/eval.sh {wdir}\n"
@@ -1184,41 +982,37 @@ async def main():
                 f"Current best score: {state['best_score']}\n"
                 f"Parent experiment: #{parent_exp}\n"
                 f"Time budget: {WORKER_TIMEOUT_SEC}s (hard limit — orchestrator will kill after)\n"
-                f"{parking_seed}"
-                f"{vector_directive}"
+                f"{direction_directive}"
                 f"{guardrail_msg}\n\n"
-                f"All context (program.md, findings.md, log, parking_lot, current best) is in your system prompt.\n"
-                f"Write deferred ideas to {wdir}/parking_lot_{i}.txt.\n"
+                f"All context (program.md, findings.md, log, roadmap, current main document) is in your system prompt.\n"
+                f"Write new direction proposals to {wdir}/roadmap_append.md.\n"
                 f"CRITICAL: Write '{exp_id}' to {wdir}/experiment_id_output.txt as your LAST action."
             )
 
-            # Persist the exact user_msg so a failed experiment is always reproducible.
-            prompts_dir = ar_dir / "prompts"
-            prompts_dir.mkdir(parents=True, exist_ok=True)
-            prompt_file = prompts_dir / f"{exp_id}.txt"
+            prompt_save_dir = ar_dir / "prompts"
+            prompt_save_dir.mkdir(parents=True, exist_ok=True)
+            prompt_file = prompt_save_dir / f"{exp_id}.txt"
             prompt_file.write_text(user_msg)
 
-            # Per-worker trace path (survives worker cleanup since it's under ar_dir/traces).
             traces_dir = ar_dir / "traces"
             traces_dir.mkdir(parents=True, exist_ok=True)
             trace_file = traces_dir / f"{exp_id}.jsonl"
 
-            # Record launch context so you can reconstruct "what did worker-N see".
             dlog(ar_dir, "worker_launch",
                  round=round_num, worker=i, exp=exp_num, exp_id=exp_id,
-                 role_bias=bias.split(" ")[0],
-                 parking_seed=pl_idea,
+                 stance=stance,
+                 assigned_direction=assigned_direction_id,
                  parent_exp=parent_exp,
                  guardrail_active=bool(guardrail_msg),
                  user_msg_chars=len(user_msg),
                  prompt_file=str(prompt_file),
                  trace_file=str(trace_file))
 
-            print(f"  Launching worker-{i} (experiment {exp_num})...")
+            print(f"  Launching worker-{i} ({stance}, experiment {exp_num})...")
             tasks.append(
                 asyncio.wait_for(
                     run_agent(
-                        system_prompt=shared_context,
+                        system_prompt=worker_context,
                         user_prompt=user_msg,
                         cwd=wdir,
                         name=f"worker-{i}",
@@ -1234,39 +1028,6 @@ async def main():
         elapsed = time.time() - t0
         round_timing["workers_ms"] = int(elapsed * 1000)
         print(f"  All workers done. ({elapsed:.1f}s)")
-
-        # Resolve previous round's background merge (if any) before processing results.
-        # The merge updates best/ — results below compare against best/, so it must land first.
-        if pending_merge is not None:
-            print(f"  [awaiting background merge from previous round...]")
-            t_merge_wait = time.time()
-            merge_output, merge_ms = await pending_merge
-            round_timing["merge_ms"] = merge_ms
-            pending_merge = None
-            print(f"  [merge resolved in {int((time.time() - t_merge_wait) * 1000)}ms additional wait]")
-            print(f"  {merge_output[:200]}")
-            dlog(ar_dir, "merge_output", round=_pending_merge_round,
-                 output=merge_output, trace_path=str(_pending_merge_trace))
-            hashes_after = _pending_merge_hash_best_fn()
-            unchanged = [f for f in _pending_merge_hashes_before
-                         if _pending_merge_hashes_before[f] == hashes_after.get(f)]
-            if unchanged:
-                print(f"  MERGE WARNING: {len(unchanged)} file(s) not written by merge agent: {unchanged}")
-                dlog(ar_dir, "merge_no_write", files=unchanged)
-                best_i, best_s, _, best_exp, best_snapshots = max(_pending_merge_passing, key=lambda x: x[1])
-                print(f"  Falling back to worker-{best_i} (exp #{best_exp}, score {best_s}) verbatim.")
-                for f in unchanged:
-                    content = best_snapshots.get(f)
-                    if content is not None:
-                        for dest_base in [ar_dir / "best", ar_dir / "branches" / _pending_merge_branch]:
-                            dest = dest_base / f
-                            dest.parent.mkdir(parents=True, exist_ok=True)
-                            dest.write_bytes(content)
-                dlog(ar_dir, "merge_fallback", fallback_worker=best_i, fallback_exp=best_exp)
-            dlog(ar_dir, "collaborative_merge_done",
-                 passing_workers=[i for i, _, _, _, _ in _pending_merge_passing],
-                 merged_parents=[exp_num for _, _, _, exp_num, _ in _pending_merge_passing],
-                 new_best=max(s for _, s, _, _, _ in _pending_merge_passing))
 
         # Track costs and token usage
         round_input_tokens = 0
@@ -1383,9 +1144,15 @@ async def main():
             if violations["unexpected"]:
                 print(f"  worker-{i}: WARN (unexpected files, ignored: {violations['unexpected'][:3]}"
                       f"{'...' if len(violations['unexpected']) > 3 else ''})")
-            if not hypothesis or not diff_text:
-                print(f"  worker-{i}: REJECTED (no hypothesis or no edits)")
-                skip = True
+            if is_qualitative:
+                writeup = read_or(wdir / "writeup.md", "").strip()
+                if not hypothesis or not writeup:
+                    print(f"  worker-{i}: REJECTED (no hypothesis or no writeup)")
+                    skip = True
+            else:
+                if not hypothesis or not diff_text:
+                    print(f"  worker-{i}: REJECTED (no hypothesis or no edits)")
+                    skip = True
 
             improved = False if skip else check_noise(worker_score, state["best_score"], state.get("direction", "maximize"))
 
@@ -1423,8 +1190,8 @@ async def main():
                 "num_turns": results[i - 1][1].num_turns if not isinstance(results[i - 1], Exception) and results[i - 1][1] else 0,
                 "trace_path": f"traces/{exp_id_local}.jsonl",
                 "prompt_file": f"prompts/{exp_id_local}.txt",
-                "assigned_vector": worker_vector_ids[i - 1],
-                "role_bias": worker_biases[i - 1],
+                "assigned_direction": worker_direction_ids[i - 1],
+                "stance": worker_stances[i - 1],
             }
             if eval_scores:
                 log_entry["eval_scores"] = eval_scores
@@ -1442,8 +1209,112 @@ async def main():
         # Strategy fork: competitive vs collaborative
         strategy = state.get("strategy", "competitive")
 
-        if strategy == "collaborative":
-            # Collect all workers that passed hard gates
+        if strategy == "collaborative" and is_qualitative:
+            # Qualitative collaborative: judge scores all write-ups, synthesizes
+            # the main document, and curates the roadmap in one call.
+            writeups = {}
+            for i in range(1, parallelism + 1):
+                wdir = ar_dir / "workers" / f"worker-{i}"
+                if isinstance(results[i - 1], Exception):
+                    continue
+                writeup = read_or(wdir / "writeup.md", "").strip()
+                hypothesis = read_or(wdir / "hypothesis.txt", "").strip()
+                if writeup:
+                    wid = f"worker-{i}"
+                    writeups[wid] = {
+                        "stance": worker_stances[i - 1],
+                        "direction": worker_direction_ids[i - 1],
+                        "hypothesis": hypothesis,
+                        "writeup": writeup,
+                    }
+
+            proposals = collect_roadmap_proposals(ar_dir, parallelism)
+
+            if writeups:
+                print(f"\n  JUDGE: {len(writeups)} write-ups collected, calling judge...")
+                dlog(ar_dir, "judge_start", round=round_num,
+                     writeup_workers=list(writeups.keys()),
+                     has_proposals=bool(proposals))
+
+                eval_script = str(Path(__file__).parent / "eval_qualitative.py")
+                writeups_json_str = json.dumps(writeups)
+                t_judge = time.time()
+                try:
+                    judge_result = subprocess.run(
+                        [sys.executable, eval_script, "--judge",
+                         str(ar_dir), writeups_json_str, proposals or ""],
+                        capture_output=True, text=True,
+                        timeout=MERGE_TIMEOUT_SEC,
+                    )
+                    judge_output = judge_result.stdout.strip()
+                    judge_data = json.loads(judge_output)
+                except subprocess.TimeoutExpired:
+                    print(f"  JUDGE TIMEOUT after {MERGE_TIMEOUT_SEC}s")
+                    dlog(ar_dir, "judge_timeout", timeout_sec=MERGE_TIMEOUT_SEC)
+                    judge_data = None
+                except (json.JSONDecodeError, Exception) as e:
+                    print(f"  JUDGE ERROR: {e}")
+                    dlog(ar_dir, "judge_error", error=str(e),
+                         stderr=judge_result.stderr[:500] if 'judge_result' in dir() else "")
+                    judge_data = None
+
+                judge_ms = int((time.time() - t_judge) * 1000)
+                round_timing["judge_ms"] = judge_ms
+
+                if judge_data:
+                    # Write updated documents to best/ and branch/
+                    editable_files = parse_editable_files(ar_dir)
+                    for fpath, content in judge_data.get("documents", {}).items():
+                        for dest_base in [ar_dir / "best", ar_dir / "branches" / state["active_branch"]]:
+                            dest = dest_base / fpath
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            dest.write_text(content)
+
+                    # Write updated roadmap
+                    if judge_data.get("roadmap"):
+                        (ar_dir / "roadmap.md").write_text(judge_data["roadmap"])
+
+                    # Write meta document
+                    if judge_data.get("meta"):
+                        (ar_dir / "meta.md").write_text(judge_data["meta"])
+
+                    # Update log entries with judge scores
+                    scores = judge_data.get("scores", {})
+                    best_score_this_round = 0
+                    for wid, wscores in scores.items():
+                        s = wscores.get("final_score", 0)
+                        if s > best_score_this_round:
+                            best_score_this_round = s
+                        print(f"  {wid}: score={s} (hard_fail={wscores.get('hard_gate_failed', False)})")
+
+                    merged_parents = [state["experiment_count"] + i for i in range(1, parallelism + 1)
+                                      if f"worker-{i}" in writeups]
+                    state["last_promoted_experiment"] = merged_parents[0] if merged_parents else state["last_promoted_experiment"]
+                    state["last_promoted_experiments"] = merged_parents
+                    state["best_score"] = best_score_this_round
+                    (ar_dir / "best_score.txt").write_text(f"{best_score_this_round}\n")
+                    state["discard_streak"] = 0
+                    state["best_unchanged_count"] = 0
+                    dlog(ar_dir, "judge_done", round=round_num,
+                         scores={wid: ws.get("final_score", 0) for wid, ws in scores.items()},
+                         merged_parents=merged_parents,
+                         judge_ms=judge_ms)
+                else:
+                    state["discard_streak"] += 1
+                    state["best_unchanged_count"] += parallelism
+                    print(f"\n  Judge failed. Discard streak: {state['discard_streak']}")
+                    dlog(ar_dir, "no_improvement", discard_streak=state["discard_streak"],
+                         best_unchanged_count=state["best_unchanged_count"],
+                         reason="judge_failed")
+            else:
+                state["discard_streak"] += 1
+                state["best_unchanged_count"] += parallelism
+                print(f"\n  No valid write-ups. Discard streak: {state['discard_streak']}")
+                dlog(ar_dir, "no_improvement", discard_streak=state["discard_streak"],
+                     best_unchanged_count=state["best_unchanged_count"])
+
+        elif strategy == "collaborative":
+            # Quantitative collaborative: merge agent synthesizes code changes
             passing = []
             for i in range(1, parallelism + 1):
                 wdir = ar_dir / "workers" / f"worker-{i}"
@@ -1457,7 +1328,6 @@ async def main():
                     wscore = 0.0
                 summary = read_or(wdir / "summary.txt", "").strip()
                 if passed_hard_gates(wdir, wscore):
-                    # Snapshot editable files now — worker dirs are cleaned up before merge resolves
                     worker_file_snapshots = {}
                     for f in parse_editable_files(ar_dir):
                         p = wdir / f
@@ -1472,7 +1342,6 @@ async def main():
                 dlog(ar_dir, "collaborative_merge_start", passing_workers=passing_nums,
                      best_score=best_passing_score)
 
-                # Build merge prompt
                 editable_files = parse_editable_files(ar_dir)
                 base_docs = []
                 for f in editable_files:
@@ -1499,65 +1368,48 @@ async def main():
                     f"PASSING WORKER OUTPUTS:\n" + "\n\n".join(worker_docs)
                 )
 
-                # Hash best/ before/after so we can verify the merge agent actually wrote files.
-                def _hash_best() -> dict[str, str]:
-                    out = {}
-                    for f in editable_files:
-                        p = ar_dir / "best" / f
-                        if p.exists():
-                            out[f] = hashlib.md5(p.read_bytes()).hexdigest()
-                    return out
-
-                hashes_before = _hash_best()
                 merge_trace = ar_dir / "traces" / f"merge-round-{round_num}.jsonl"
-                _merge_round = round_num  # capture for closure
-                _merge_trace = merge_trace
-                _hashes_before = hashes_before
-                _hash_best_fn = _hash_best
+                t_merge = time.time()
+                try:
+                    merge_output, _ = await asyncio.wait_for(
+                        run_agent(
+                            system_prompt=merge_skill,
+                            user_prompt=merge_user_msg,
+                            cwd=ar_dir,
+                            name="merge",
+                            trace_path=merge_trace,
+                        ),
+                        timeout=MERGE_TIMEOUT_SEC,
+                    )
+                except asyncio.TimeoutError:
+                    print(f"  MERGE TIMEOUT after {MERGE_TIMEOUT_SEC}s — using best worker as fallback")
+                    dlog(ar_dir, "merge_timeout", timeout_sec=MERGE_TIMEOUT_SEC)
+                    merge_output = "MERGE TIMEOUT"
+                    best_i, best_s, _, best_exp, best_snapshots = max(passing, key=lambda x: x[1])
+                    for f in editable_files:
+                        content = best_snapshots.get(f)
+                        if content is not None:
+                            for dest_base in [ar_dir / "best", ar_dir / "branches" / state["active_branch"]]:
+                                dest = dest_base / f
+                                dest.parent.mkdir(parents=True, exist_ok=True)
+                                dest.write_bytes(content)
 
-                async def _run_merge(system_prompt=merge_skill, user_prompt=merge_user_msg,
-                                     cwd=ar_dir, trace=merge_trace):
-                    t = time.time()
-                    try:
-                        out, _ = await asyncio.wait_for(
-                            run_agent(
-                                system_prompt=system_prompt,
-                                user_prompt=user_prompt,
-                                cwd=cwd,
-                                name="merge",
-                                trace_path=trace,
-                            ),
-                            timeout=MERGE_TIMEOUT_SEC,
-                        )
-                    except asyncio.TimeoutError:
-                        elapsed_ms = int((time.time() - t) * 1000)
-                        print(f"  MERGE TIMEOUT after {MERGE_TIMEOUT_SEC}s — triggering fallback")
-                        dlog(ar_dir, "merge_timeout", timeout_sec=MERGE_TIMEOUT_SEC,
-                             elapsed_ms=elapsed_ms, trace_path=str(trace))
-                        return f"MERGE TIMEOUT after {MERGE_TIMEOUT_SEC}s", elapsed_ms
-                    return out, int((time.time() - t) * 1000)
-
-                # Store passing workers for fallback (needed when merge resolves)
-                _pending_merge_passing = passing
-                _pending_merge_hashes_before = hashes_before
-                _pending_merge_branch = state["active_branch"]
-                _pending_merge_round = round_num
-                _pending_merge_trace = merge_trace
-                _pending_merge_hash_best_fn = _hash_best
-
-                pending_merge = asyncio.get_event_loop().create_task(_run_merge())
-                print(f"  [merge launched in background — will resolve before next round's results]")
+                merge_ms = int((time.time() - t_merge) * 1000)
+                round_timing["merge_ms"] = merge_ms
+                dlog(ar_dir, "merge_output", round=round_num,
+                     output=str(merge_output)[:500], merge_ms=merge_ms)
 
                 state["best_score"] = best_passing_score
-                # Collaborative: merged baseline has multiple parents. Track as a list
-                # so genealogy tools can show the real structure instead of picking one.
                 merged_parents = [exp_num for _, _, _, exp_num, _ in passing]
-                state["last_promoted_experiment"] = merged_parents[0]  # back-compat scalar
+                state["last_promoted_experiment"] = merged_parents[0]
                 state["last_promoted_experiments"] = merged_parents
                 (ar_dir / "best_score.txt").write_text(f"{best_passing_score}\n")
                 state["discard_streak"] = 0
                 state["best_unchanged_count"] = 0
-                # collaborative_merge_done is logged when merge resolves (see await block above)
+                dlog(ar_dir, "collaborative_merge_done",
+                     passing_workers=passing_nums,
+                     merged_parents=merged_parents,
+                     new_best=best_passing_score)
             else:
                 state["discard_streak"] += 1
                 state["best_unchanged_count"] += parallelism
@@ -1589,13 +1441,18 @@ async def main():
         state["experiment_count"] += parallelism
         write_state(ar_dir, state)
 
-        # Merge parking lots and log what was collected
-        parking_before = read_or(ar_dir / "parking_lot.md", "").strip()
-        merge_parking_lots(ar_dir, parallelism)
-        parking_after = read_or(ar_dir / "parking_lot.md", "").strip()
-        if parking_after != parking_before:
-            new_content = parking_after[len(parking_before):].strip()
-            dlog(ar_dir, "parking_lot_merge", round=round_num, new_entries=new_content)
+        # For quantitative mode, auto-append roadmap proposals (judge handles this for qualitative)
+        if not is_qualitative:
+            proposals = collect_roadmap_proposals(ar_dir, parallelism)
+            if proposals:
+                roadmap_path = ar_dir / "roadmap.md"
+                existing = read_or(roadmap_path, "# Roadmap\n")
+                roadmap_path.write_text(existing + "\n\n## Worker proposals (round " + str(round_num) + ")\n" + proposals + "\n")
+                dlog(ar_dir, "roadmap_proposals_appended", round=round_num, proposals_chars=len(proposals))
+
+        # Persist writeups before cleanup
+        from bin.writeup_store import persist_writeups
+        persist_writeups(ar_dir, parallelism, round_num)
 
         cleanup_workers(ar_dir)
 
@@ -1644,31 +1501,13 @@ async def main():
         )
         dlog(ar_dir, "round_timing", round=round_num, **round_timing)
 
-    # Resolve any merge that was running during the final round's workers
-    if pending_merge is not None:
-        print(f"\n[awaiting final background merge...]")
-        merge_output, merge_ms = await pending_merge
-        print(f"  {merge_output[:200]}")
-        dlog(ar_dir, "merge_output", round=_pending_merge_round,
-             output=merge_output, trace_path=str(_pending_merge_trace))
-        hashes_after = _pending_merge_hash_best_fn()
-        unchanged = [f for f in _pending_merge_hashes_before
-                     if _pending_merge_hashes_before[f] == hashes_after.get(f)]
-        if unchanged:
-            dlog(ar_dir, "merge_no_write", files=unchanged)
-            best_i, best_s, _, best_exp, best_snapshots = max(_pending_merge_passing, key=lambda x: x[1])
-            for f in unchanged:
-                content = best_snapshots.get(f)
-                if content is not None:
-                    for dest_base in [ar_dir / "best", ar_dir / "branches" / _pending_merge_branch]:
-                        dest = dest_base / f
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        dest.write_bytes(content)
-            dlog(ar_dir, "merge_fallback", fallback_worker=best_i, fallback_exp=best_exp)
-        dlog(ar_dir, "collaborative_merge_done",
-             passing_workers=[i for i, _, _, _, _ in _pending_merge_passing],
-             merged_parents=[exp_num for _, _, _, exp_num, _ in _pending_merge_passing],
-             new_best=max(s for _, s, _, _, _ in _pending_merge_passing))
+    # Generate verdict
+    from bin.verdict import generate_verdict
+    try:
+        verdict = generate_verdict(ar_dir)
+        print(f"\n--- VERDICT: {verdict['headline']} (pro={verdict['tension']['pro']}%, con={verdict['tension']['con']}%) ---")
+    except Exception as e:
+        print(f"\n  Warning: verdict generation failed: {e}")
 
     print(f"\n=== AUTORESEARCH COMPLETE ===")
     print(f"Ran {round_num} rounds ({state['experiment_count']} experiments). Best: {state['best_score']:.2f}")

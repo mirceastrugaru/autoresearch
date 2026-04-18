@@ -5,64 +5,87 @@ alwaysApply: false
 
 # Autoresearch Design
 
-You are setting up an autonomous research project. The human has a goal — something they want to make better. Your job is to understand that goal, produce the configuration files the orchestrator needs, and then run the iterative experiment loop.
+You are setting up an autonomous research project. The human has a goal — something they want to understand, prove, disprove, or improve. Your job is to understand that goal, produce the configuration files the orchestrator needs, and then run the iterative experiment loop.
 
-## MANDATORY: You MUST follow Phases 1-4 in order. Do NOT skip phases. Do NOT "just do it yourself."
+## MANDATORY: You MUST follow Phases 1-5 in order. Do NOT skip phases. Do NOT "just do it yourself."
 
-The entire point of autoresearch is the iterative loop — multiple rounds of parallel agents, each improving on the last. If you bypass the orchestrator and do the work directly, you have defeated the purpose. This applies to ALL goals: code optimization, document writing, research, analysis, prompt engineering — everything.
+The entire point of autoresearch is the iterative loop — multiple rounds of parallel pro/con workers, each producing evidence. If you bypass the orchestrator and do the work directly, you have defeated the purpose.
 
 ## What kind of project is this?
 
-Two default combinations (use unless the goal strongly suggests otherwise):
+Two modes:
 
-- **competitive + quantitative**: workers race to maximize/minimize a number. Default for optimization problems — faster code, better accuracy, lower latency. Eval script returns a number.
-- **collaborative + qualitative**: workers explore independent dimensions, all valid work accumulates. Default for research, analysis, documents. LLM judge scores against a rubric with hard/soft gates.
+- **qualitative**: workers produce write-ups (evidence for/against), an LLM judge scores and synthesizes into a main document. Default for research, analysis, documents, DD, decisions, evaluations.
+- **quantitative**: workers edit code, eval script returns a number, best score wins. Default for optimization (faster code, better accuracy, lower latency).
 
-The orchestrator warns (but does not forbid) unusual combinations: competitive + qualitative tends to plateau because quality scores have a ceiling; collaborative + quantitative loses information when merging numeric results. Use the defaults unless you have a specific reason.
-
-Determine which combination fits the user's goal before proceeding.
+Determine which fits the user's goal before proceeding.
 
 ## Phase 1: Understand the goal
 
-Start with the goal. If the user's request is clear (e.g. "optimize this sort function," "research the embedded UI landscape"), proceed directly. If ambiguous, ask one concise clarifying question — not a checklist.
+Start with the goal. If the user's request is clear, proceed directly. If ambiguous, ask one concise clarifying question — not a checklist.
 
-Any goal is valid: code optimization, document writing, market research, argument development, personal decisions. Do not redirect the user based on goal type.
+Any goal is valid: code optimization, document writing, market research, argument development, due diligence, product rebuilds, personal decisions. Do not redirect the user based on goal type.
 
-**If the goal involves code**: Read the codebase — structure, imports, existing tests, benchmarks. You can't design a meaningful experiment on code you haven't looked at.
+**If the goal involves code**: read the codebase — structure, imports, existing tests, benchmarks.
 
-**For everything else**: Determine what the output document should contain, what "better" means for it, and what sources/approaches the agents should use.
+**For everything else**: determine what the output should contain and what "better" means.
 
-After your analysis, present a **short plan**:
+## Phase 2: Propose a research plan
+
+Before you can propose directions, you need to understand the domain. Propose a short research plan — what you'll investigate before drafting the agenda:
+
+```
+Before I propose directions, I'd research:
+- [specific thing to investigate 1]
+- [specific thing to investigate 2]
+- [specific thing to investigate 3]
+
+Add anything? Remove anything? Reply with edits or "go."
+```
+
+Wait for confirmation. The user may add, remove, or just say go.
+
+## Phase 3: Do the research
+
+Execute the research plan. For code goals: read the target files, imports, call graphs. For everything else: 2-5 web searches or source reads to understand the domain enough to propose specific directions.
+
+Keep it bounded — 5 minutes of work max. This is setup, not execution. The loop does the deep work.
+
+## Phase 4: Propose the agenda
+
+Present two lists — what to prove and what to disprove. Be specific, not generic.
 
 ```
 **<name>** — <one-line goal>
 
-Directions to explore:
-- <specific idea 1>
-- <specific idea 2>
-- <specific idea 3>
-- ...
+Directions to prove:
+- <specific direction 1>
+- <specific direction 2>
+- <specific direction 3>
 
-<N> workers, <M> rounds, ~$<X>. Ready?
+Directions to disprove:
+- <specific direction 1>
+- <specific direction 2>
+- <specific direction 3>
+
+<N> workers (N/2 pro + N/2 con), <M> rounds, ~$<X>. Ready?
 ```
 
-Keep implementation details (lockfiles, editable files list, parallelism reasoning) out of the plan — those are your job. Surface only what the human needs to confirm the goal is right.
+Aim for 4-6 prove directions and 3-5 disprove directions. Enough breadth to avoid tunnel vision in early rounds. Workers will discover more during the loop.
 
-Work interactively with the human to clarify the goal. Ask follow-up questions if needed. When the goal is clear, write the config files.
+Wait for the human to edit and confirm. They may strike, add, or rearrange.
 
 Things you figure out yourself (do NOT ask the human):
 
-- **The initiative name**: derive from the goal. Keep it short, lowercase, hyphenated.
-- **Strategy and measurement**: determine from the goal type. Do not explain your reasoning unless asked.
-- **What files to edit**: For code — look at imports, call graphs. For documents — create the initial document.
-- **What's off limits**: Tests, configs, CI, build files, lockfiles, eval infrastructure.
-- **How to measure it**: For code — existing benchmarks or write an eval script. For documents — design a rubric with weighted criteria.
-- **Research directions**: Specific, actionable ideas for improvement.
-- **Parallelism and rounds**: Recommend based on problem complexity and expected cost. Simple optimization: 3 workers, 5 rounds. Deep research: 3 workers, 10 rounds.
+- **The initiative name**: derive from the goal. Short, lowercase, hyphenated.
+- **Measurement mode**: determine from the goal type.
+- **What files to edit**: for code — look at imports, call graphs. For documents — create the initial document.
+- **What's off limits**: tests, configs, CI, build files, eval infrastructure.
+- **How to measure it**: for code — existing benchmarks or write an eval script. For documents — design a rubric.
+- **Parallelism**: default 2 (1 pro + 1 con). Must be even.
+- **Rounds**: default 3.
 
-**Only ask the human when you genuinely cannot determine something from the code or context.**
-
-## Phase 2: Write the config files
+## Phase 5: Write the config files
 
 Each initiative gets its own directory under `autoresearch/`. Create `autoresearch/<name>/` with:
 
@@ -72,29 +95,36 @@ Each initiative gets its own directory under `autoresearch/`. Create `autoresear
 # Research Program
 
 ## Target
-{what we're optimizing, in plain language}
+{what we're investigating, in plain language}
 
 ## Metric
 {what "better" means and how we measure it}
 
 ## Strategy
-{competitive or collaborative}
+collaborative
 
 ## Measurement
 {quantitative or qualitative}
 
 ## Direction
-{maximize or minimize — e.g., minimize for latency/time, maximize for throughput/accuracy/quality}
+maximize
 
 ## Parallelism
-{default 3}
+{default 2, must be even}
 
 ## Editable files
 - {file1}
 - {file2}
 
-## Directions to explore
-{research directions — specific, actionable ideas}
+## Directions to prove
+- {specific direction 1}
+- {specific direction 2}
+- {specific direction 3}
+
+## Directions to disprove
+- {specific direction 1}
+- {specific direction 2}
+- {specific direction 3}
 ```
 
 **For qualitative measurement, add a `## Rubric` section with hard and soft gates:**
@@ -109,22 +139,20 @@ Hard gates (fail any = score 0):
 Soft gates (each pass = +1 point):
 - technical_specificity: concrete details (numbers, versions, measurements), not generalizations
 - analytical_reasoning: connects facts into arguments with stated conclusions
-- causal_implications: traces cause → effect → consequence with evidence
+- causal_implications: traces cause -> effect -> consequence with evidence
 - investigative_effort: evidence of real digging (source code, commits, APIs, configs) not just summarizing docs pages
 {add domain-specific soft gates here based on the initiative's goal}
 
 Score: 0 (hard gate fail) or 0-N (soft gate count).
 ```
 
-The four universal soft gates (technical_specificity, analytical_reasoning, causal_implications, investigative_effort) must always be present. Add domain-specific gates on top using judgment — for example: comparative_insight when comparing options, trend_analysis when temporal change matters. Do not use a fixed list; pick what fits the specific goal.
-
-The hard/soft structure and gate names must be preserved as-is — the eval script depends on parsing them.
+The four universal soft gates must always be present. Add domain-specific gates on top.
 
 ### autoresearch/<name>/eval.sh
 
-**For quantitative**: an executable bash script that accepts a directory argument (`$1`) and prints one number to stdout. Build from existing benchmarks if possible. Make it executable.
+**For quantitative**: an executable bash script that accepts a directory argument (`$1`) and prints one number to stdout. Make it executable.
 
-**For qualitative**: a bash script that calls the LLM-as-judge evaluator. Use this template:
+**For qualitative**: a bash script that calls the LLM-as-judge evaluator:
 
 ```bash
 #!/usr/bin/env bash
@@ -134,7 +162,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 /opt/homebrew/bin/python3.13 "$SCRIPT_DIR/../../bin/eval_qualitative.py" "$WORKER_DIR" "$SCRIPT_DIR"
 ```
 
-Make it executable. The `eval_qualitative.py` script reads the rubric from program.md, reads the editable files from the worker directory, and uses an LLM to score them.
+Make it executable.
 
 ### autoresearch/<name>/lockfile.txt
 
@@ -142,19 +170,17 @@ Files the agents must not edit, one per line.
 
 ### For qualitative/document projects: Create the initial document
 
-If the editable file is a document (e.g. `analysis.md`), write an initial version with a solid structure and seed content. This becomes the baseline that agents will iteratively improve. Don't leave it empty — give the agents something substantive to work with so the first round of experiments can focus on improving specific sections rather than writing from scratch.
+If the editable file is a document, write an initial version with a solid outline. This becomes the baseline the judge iteratively improves. Don't leave it empty.
 
-Place this file in the project directory at the path listed in "Editable files".
+## Phase 6: Run the experiments
 
-## Phase 3: Run the experiments
+After writing the files, ask: **"Ready to start? How many rounds? (default: 3)"**
 
-After writing the files, ask: **"Ready to start? How many rounds? (default: 10, that's 30 experiments)"**
-
-When they confirm, find the orchestrator script. Search for it:
-1. Common locations: `~/Desktop/Projects/autoresearch-skills/bin/orchestrator.py`
+When they confirm, find the orchestrator script:
+1. Common location: `~/Desktop/Projects/autoresearch-skills/bin/orchestrator.py`
 2. Search: `find ~ -path "*/autoresearch-skills/bin/orchestrator.py" -maxdepth 4 2>/dev/null | head -1`
 
-Run it directly using the Bash tool (NOT in background — you need to see the output):
+Run it directly using the Bash tool (NOT in background):
 
 ```bash
 /opt/homebrew/bin/python3.13 <orchestrator_path> <rounds> . <name>
@@ -162,18 +188,13 @@ Run it directly using the Bash tool (NOT in background — you need to see the o
 
 Set the Bash timeout to 600000 (10 minutes).
 
-While it runs, the output streams back to you. After each round, relay the key info to the human:
-- Which round finished, what scores workers got
-- Which worker was promoted or if no improvement
-- Current best score
-
-## Phase 4: Present results
+## Phase 7: Present results
 
 When the orchestrator finishes, invoke `/autoresearch:review` to present the results.
 
 ## CRITICAL REMINDERS
 
-- **NEVER skip the orchestrator.** Do not do the work yourself. Do not spawn your own agents outside the orchestrator. The orchestrator IS the product.
-- **NEVER skip Phase 2.** You must write program.md, eval.sh, and lockfile.txt before running.
-- **NEVER skip Phase 3.** The iterative loop must run. One-shot answers defeat the purpose.
-- **Qualitative mode is real.** Research, analysis, documents — all go through the loop. The LLM judge scores them. Multiple rounds improve them. This is not just for code.
+- **NEVER skip the orchestrator.** Do not do the work yourself.
+- **NEVER skip Phase 5.** You must write program.md, eval.sh, and lockfile.txt before running.
+- **NEVER skip Phase 6.** The iterative loop must run.
+- **Parallelism must be even.** Minimum 2 (1 pro + 1 con).

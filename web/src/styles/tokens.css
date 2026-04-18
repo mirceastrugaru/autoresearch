@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #faf9f6;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f3ee;
+  --color-surface-3: #ecebe4;
+  --color-border: #e7e4da;
+  --color-border-strong: #d8d3c4;
+  --color-text: #1f1e1b;
+  --color-text-2: #5a564c;
+  --color-text-3: #8a8678;
+  --color-accent: #c96442;
+  --color-accent-2: #b85635;
+  --color-accent-soft: #fbeee6;
+  --color-pro: #4a7c59;
+  --color-pro-soft: #ecf3ee;
+  --color-con: #b85635;
+  --color-con-soft: #fbeee6;
+  --color-blue: #3b6fa5;
+  --color-blue-soft: #e9f0f7;
+  --color-yellow-soft: #faf0d4;
+}
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+.serif {
+  font-family: 'Source Serif 4', Georgia, serif;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-3);
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(74,124,89,0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(74,124,89,0); }
+  100% { box-shadow: 0 0 0 0 rgba(74,124,89,0); }
+}
+
+.dot-live {
+  animation: pulse 1.6s infinite;
+}

@@ -15,7 +15,7 @@ Base document path, editable files list, output paths (best/ and branch/), and f
    - Preserve everything from the base that no worker changed.
    - Where workers improved different sections: include all improvements.
    - Where workers overlap on the same content: keep the most complete, specific, well-sourced version.
-   - Where workers **disagree on a fact** (different numbers, conflicting claims): include both with attribution (e.g. "Worker 1 reports X; Worker 2 reports Y"), and log the conflict to `parking_lot_merge.txt` in the autoresearch directory so a human can reconcile it later.
+   - Where workers **disagree on a fact** (different numbers, conflicting claims): include both with attribution (e.g. "Worker 1 reports X; Worker 2 reports Y").
    - Writing new connective prose to make the merge coherent is allowed and expected. Don't just stitch chunks — produce something readable.
 5. Write the merged file to both `best/<path>` and `branches/<active_branch>/<path>`. You MUST write — if the orchestrator detects that `best/` is unchanged post-merge, it falls back to the highest-scoring worker's files verbatim.
 
